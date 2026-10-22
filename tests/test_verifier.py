@@ -61,3 +61,17 @@ def test_allergen_check_runs_on_adapted_list():
     analysis = DishAnalysis(ingredients=[ingredient("peanut sauce", 20, False, None)])
     verified, _ = verify(REQUEST, analysis, SubstitutionPlan(substitutions=[]), RunDeps(store="Walmart", allergies=["peanuts"]), seen_ids=set())
     assert verified.allergen_check.conflicts and verified.allergen_check.all_clear is False
+
+
+def test_saved_example_loads_and_round_trips():
+    from agents import load_result, save_result
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "example_result.json"
+    result = load_result(fixture)
+    assert result.status == "complete" and result.verified and result.writer
+    out = Path(__file__).resolve().parent / "fixtures" / "_roundtrip.json"
+    try:
+        save_result(result, out)
+        assert load_result(out) == result
+    finally:
+        out.unlink(missing_ok=True)

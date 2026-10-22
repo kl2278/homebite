@@ -116,3 +116,44 @@ Now the agents. Build only what's listed here. This step makes real LLM calls, s
 
 Show me: the test results, the full output of both runs, token totals per stage, and git status. Then stop.
 ````
+
+## Prompt 4: Streamlit UI
+
+````
+Now the Streamlit UI. Build only what's listed here. Real LLM calls cost tokens, so use the saved-fixture mode below while iterating on the layout, and make only a few live runs.
+
+0. Small prerequisite changes (these are the ONLY changes allowed to agents.py and usage.py in this step):
+   a. Add an optional progress_callback argument to run_pipeline(user_text, settings, progress_callback=None). It is called with a short stage label before each stage ("Reading your request", "Analyzing the dish", "Finding substitutes at your store", "Verifying nutrition and allergens", "Writing your recipe").
+   b. Add a way to save a PipelineResult to JSON and load it back (Pydantic model_dump_json / model_validate_json is fine). Save the result of one good live run to tests/fixtures/example_result.json and commit it.
+   c. In usage.py add PRICES_ARE_PLACEHOLDER = True at the top (I will flip it to False once I have real prices).
+
+1. app.py layout:
+   - Title "HomeBite", one-line description: adapt a dish from home using ingredients you can actually buy near you, with nutrition numbers computed from USDA data.
+   - Sidebar: store selector (Walmart, Trader Joe's, Whole Foods, Aldi, Asian grocery), allergy multiselect (peanuts, tree nuts, shellfish, fish, soy, wheat/gluten, eggs, dairy, sesame), dietary preference selector, servings (1-8), and goal selector (none, higher protein, lower sodium, lower calorie).
+   - A collapsed "Developer tools" expander in the sidebar with a toggle "Use saved example (no live AI call)", which loads tests/fixtures/example_result.json. When active, show a clear banner "Showing a saved example, no live AI call was made."
+   - Main area: a text box "Tell me about a dish from home", three clickable example dishes from different cuisines (Taiwanese beef noodle soup, a French weekday lunch, an Indian dal), and a primary "Adapt my dish" button.
+   - While running, show progress using the progress_callback (st.status or a spinner with the stage label).
+
+2. Flow and state:
+   - Use st.session_state so reruns (changing a widget, expanding a section) never repeat paid LLM calls. Store the PipelineResult and the inputs it was made with.
+   - If Intake returns a ClarifyingQuestion, show it and a text input for the answer; on submit, combine the original text and the answer and run again.
+   - Handle errors gracefully: a friendly message plus a "Try again" button, never a raw traceback.
+
+3. Results (render from the PipelineResult only, do not call any model here):
+   - Heading with the dish name and the store.
+   - Writer's intro, then the adapted ingredient list, then the cooking steps and the "what will taste different" note.
+   - Substitutions table: original -> substitute, store, price, taste/texture note, with a status column (substituted / no_substitute / common item, not checked against the catalog). Show prices as "starter catalog price, not live" in a caption.
+   - Allergen status box: red (st.error) for conflicts; yellow (st.warning) listing uncertain ingredients with "Couldn't confirm these are free of <allergen>. Check the label."; green (st.success) only when all_clear, with the caption "Based on catalog tags and a keyword list, not a guarantee."
+   - Nutrition: original vs adapted per serving. Use st.metric for calories and sodium with the delta, a st.bar_chart (or similar) for protein, fat, carbs, fiber, sugar in grams, and a caption listing ingredients NOT counted because USDA has no entry ("Totals exclude: ...; actual values are likely a bit higher").
+   - An expander "How this was made" showing the trace stage by stage: which agent ran, which tools it called (name, arguments, short result), and what it returned, plus tokens per stage.
+   - A "Usage" panel: tokens (input, cached, output) and estimated cost for this run and the session total, as a small table. If PRICES_ARE_PLACEHOLDER is True, caption it "Estimated cost uses placeholder prices."
+   - Footer: nutrition values come from USDA FoodData Central; this is not medical advice; grocery data is a starter set.
+
+4. Style: clean and simple. Use a page title/icon, st.columns for the side-by-side nutrition, consistent spacing, and no clutter. A person who has never seen the app should know what to do within 5 seconds.
+
+5. Run it: start the app, test the saved-fixture mode first, then do ONE live run ("Taiwanese beef noodle soup", Walmart, peanuts) to check the end-to-end flow, including the Writer's text. Then test the vague-input path ("something from home"). Show me what each screen shows (describe it; I will take the screenshots myself). Fix problems you find.
+
+6. Follow the prompt-log rule from CLAUDE.md, confirm gpt-6-luna is still the only model name and .env is not staged, and commit "Prompt 4: Streamlit UI". Don't push.
+
+Give me: the exact command to run the app, a description of each screen, the live-run output (including any text the Writer produced about small amounts), 3 look-and-feel improvements you recommend, and git status. Then stop.
+````

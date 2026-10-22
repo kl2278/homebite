@@ -5,7 +5,9 @@ tools.py. Every nutrition number and allergen result comes from code, never from
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
@@ -498,7 +500,24 @@ def render_answer(request: Request, verified: Verified, writer: WriterOutput, de
 
 # ================================================================ pipeline
 
-def run_pipeline(user_text: str, settings: RunDeps) -> PipelineResult:
+def save_result(result: PipelineResult, path: str | Path) -> None:
+    """Save a PipelineResult as JSON (used for the saved example in the UI)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+
+
+def load_result(path: str | Path) -> PipelineResult:
+    return PipelineResult.model_validate_json(Path(path).read_text(encoding="utf-8"))
+
+
+def run_pipeline(user_text: str, settings: RunDeps, progress_callback: Callable[[str], None] | None = None) -> PipelineResult:
+    """Run all stages. progress_callback(label) is called with a short label before each stage."""
+
+    def progress(label: str) -> None:
+        if progress_callback:
+            progress_callback(label)
+
     model = build_model()
     result = PipelineResult(status="complete")
 
@@ -520,6 +539,7 @@ def run_pipeline(user_text: str, settings: RunDeps) -> PipelineResult:
         return result
 
     # 1. Intake
+    progress("Reading your request")
     prompt = f"Student message: {user_text}\nSettings: {settings.summary()}"
     run, entry = _run_agent(intake_agent, "intake", prompt, settings, model)
     add_stage("intake", prompt[:200], run, run.output, entry)
@@ -530,6 +550,7 @@ def run_pipeline(user_text: str, settings: RunDeps) -> PipelineResult:
     result.request = request = run.output
 
     # 2. Dish Analyst
+    progress("Analyzing the dish")
     prompt = f"Request: {request.model_dump_json()}\nSettings: {settings.summary()}"
     run, entry = _run_agent(analyst_agent, "analyst", prompt, settings, model)
     result.analysis = analysis = run.output
@@ -537,6 +558,7 @@ def run_pipeline(user_text: str, settings: RunDeps) -> PipelineResult:
     add_stage("analyst", prompt[:200], run, analysis, entry)
 
     # 3. Substitution (skipped if nothing is hard to find)
+    progress("Finding substitutes at your store")
     hard = [i for i in analysis.ingredients if i.hard_to_find_abroad]
     if hard:
         prompt = (
@@ -558,6 +580,7 @@ def run_pipeline(user_text: str, settings: RunDeps) -> PipelineResult:
         add_stage("substitution", "no hard-to-find ingredients", None, None, None, note="Skipped: nothing to substitute.")
 
     # 4. Verifier (code only)
+    progress("Verifying nutrition and allergens")
     verified, calls = verify(request, analysis, result.substitution_plan, settings, seen_ids)
     result.verified = verified
     result.trace.append(StageTrace(
@@ -576,6 +599,7 @@ def run_pipeline(user_text: str, settings: RunDeps) -> PipelineResult:
         "left_out": verified.omitted_from_adapted,
         "dietary_preferences": settings.dietary_preferences,
     }
+    progress("Writing your recipe")
     prompt = f"Write the answer for this plan:\n{brief}"
     run, entry = _run_agent(writer_agent, "writer", prompt, None, model)
     result.writer = run.output

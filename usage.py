@@ -4,6 +4,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+# True while the prices below are made-up placeholders. Set to False once they are real.
+PRICES_ARE_PLACEHOLDER = True
+
 # Edit these: price in USD per one million tokens.
 INPUT_PRICE_PER_M = 1.00
 CACHED_INPUT_PRICE_PER_M = 0.25
