@@ -47,11 +47,11 @@ def main() -> None:
     which = sys.argv[1] if len(sys.argv) > 1 else "both"
     if which in ("full", "both"):
         print("######## EXAMPLE 1: Taiwanese beef noodle soup, Walmart, peanut allergy ########")
-        settings = RunDeps(store="Walmart", allergies=["peanuts"], dietary_preferences=[], goals=[])
+        settings = RunDeps(store="Walmart", servings=2, allergies=["peanuts"], dietary_preferences=[], goals=[])
         print_result(run_pipeline("Taiwanese beef noodle soup", settings))
     if which in ("vague", "both"):
         print("\n\n######## EXAMPLE 2: vague input ########")
-        settings = RunDeps(store="Walmart", allergies=["peanuts"], dietary_preferences=[], goals=[])
+        settings = RunDeps(store="Walmart", servings=2, allergies=["peanuts"], dietary_preferences=[], goals=[])
         print_result(run_pipeline("something from home", settings))
 
 

@@ -57,9 +57,6 @@ def friendly_error(error: Exception) -> str:
 def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None:
     """Run the pipeline once (paid LLM calls) and keep everything in session_state."""
     ss.error, ss.clarify = None, None
-    # Settings travel in RunDeps (trusted); the student's text is passed on its own.
-    deps = RunDeps(store=inputs["store"], servings=inputs["servings"], allergies=inputs["allergies"],
-                   dietary_preferences=diet, goals=goals)
     status = st.status("Starting...", expanded=True)
 
     def on_progress(label: str) -> None:
@@ -67,8 +64,11 @@ def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None
         status.write(label)
 
     try:
+        # Settings travel in RunDeps (trusted); the student's text is passed on its own.
+        deps = RunDeps(store=inputs["store"], servings=inputs["servings"], allergies=inputs["allergies"],
+                       dietary_preferences=diet, goals=goals)
         result = run_pipeline(text, deps, progress_callback=on_progress, session=ss.limits)
-    except Exception as error:  # show a friendly message, log the details for the developer
+    except Exception as error:  # friendly message for the user, full details only in the server log
         logging.getLogger("homebite").exception("Pipeline failed")
         status.update(label="Something went wrong", state="error")
         ss.error = friendly_error(error)
