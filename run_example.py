@@ -27,6 +27,9 @@ def print_result(result: PipelineResult) -> None:
     if result.status == "needs_clarification":
         print("\n=== CLARIFYING QUESTION ===")
         print(result.clarifying_question)
+    elif result.status in ("blocked", "stopped"):
+        print(f"\n=== {result.status.upper()} ({result.block_category or result.limit_kind}) ===")
+        print(result.message)
     else:
         print("\n=== FINAL ANSWER ===")
         print(result.answer_markdown)

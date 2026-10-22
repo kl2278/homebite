@@ -14,6 +14,7 @@ import streamlit as st
 
 import usage
 from agents import COMMON_LABEL, NUTRIENT_LABELS, PipelineResult, RunDeps, load_result, run_pipeline
+from safety import SessionLimits
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "tests" / "fixtures" / "example_result.json"
 # The settings the saved example was made with.
@@ -40,6 +41,7 @@ ss.setdefault("result", None)  # the PipelineResult of the last live run
 ss.setdefault("inputs", None)  # the settings that result was made with
 ss.setdefault("clarify", None)  # {"text": ..., "question": ...} while waiting for an answer
 ss.setdefault("error", None)
+ss.setdefault("limits", SessionLimits())  # rate limit and token counters for this browser session
 ss.setdefault("session_usage", {k: 0 for k in USAGE_KEYS})
 ss.setdefault("dish_text", "")
 
@@ -55,7 +57,9 @@ def friendly_error(error: Exception) -> str:
 def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None:
     """Run the pipeline once (paid LLM calls) and keep everything in session_state."""
     ss.error, ss.clarify = None, None
-    deps = RunDeps(store=inputs["store"], allergies=inputs["allergies"], dietary_preferences=diet, goals=goals)
+    # Settings travel in RunDeps (trusted); the student's text is passed on its own.
+    deps = RunDeps(store=inputs["store"], servings=inputs["servings"], allergies=inputs["allergies"],
+                   dietary_preferences=diet, goals=goals)
     status = st.status("Starting...", expanded=True)
 
     def on_progress(label: str) -> None:
@@ -63,7 +67,7 @@ def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None
         status.write(label)
 
     try:
-        result = run_pipeline(f"{text}\nServings wanted: {inputs['servings']}", deps, progress_callback=on_progress)
+        result = run_pipeline(text, deps, progress_callback=on_progress, session=ss.limits)
     except Exception as error:  # show a friendly message, log the details for the developer
         logging.getLogger("homebite").exception("Pipeline failed")
         status.update(label="Something went wrong", state="error")
@@ -155,11 +159,15 @@ def money(value: float) -> str:
 
 def render_ingredients(result: PipelineResult, inputs: dict) -> None:
     request, verified = result.request, result.verified
+    conflicts = {c.ingredient: c.allergen.replace("_", " ") for c in result.hard_stop_conflicts}
     st.subheader("Ingredients")
     st.caption(f"For {request.servings} servings")
     for line in verified.adapted_ingredients:
         grams = round(line.grams_per_serving * request.servings, 1)
-        st.markdown(f"- {line.name}: about {grams:g} g")
+        if line.name in conflicts:
+            st.markdown(f"- :red[**{line.name}: about {grams:g} g (contains {conflicts[line.name]})**]")
+        else:
+            st.markdown(f"- {line.name}: about {grams:g} g")
     for name in verified.omitted_from_adapted:
         st.markdown(f"- ~~{name}~~ (left out, no suitable substitute)")
 
@@ -234,8 +242,20 @@ def render_nutrition(result: PipelineResult) -> None:
     st.caption("Substitutes are assumed to be used 1:1 by weight.")
 
 
+SAFETY_ICONS = {"passed": "✅", "warning": "⚠️", "blocked": "⛔", "skipped": "➖"}
+
+
 def render_trace(result: PipelineResult) -> None:
     with st.expander("How this was made"):
+        st.markdown("**Safety checks**")
+        if result.safety_checks:
+            for check in result.safety_checks:
+                st.markdown(f"- {SAFETY_ICONS[check.status]} **{check.name}**: {check.status}" + (f" ({check.detail})" if check.detail else ""))
+            if result.writer_path:
+                st.caption(f"Writer text path: {result.writer_path}")
+        else:
+            st.caption("This saved example was recorded before the safety checks were added.")
+        st.divider()
         for stage in result.trace:
             st.markdown(f"**{stage.stage.capitalize()}**" + (" (code only, no AI)" if stage.stage == "verifier" else ""))
             st.caption(f"Input: {stage.input_summary}")
@@ -267,7 +287,19 @@ def render_usage(result: PipelineResult, saved_example: bool) -> None:
 def render_result(result: PipelineResult, inputs: dict, saved_example: bool) -> None:
     request, writer = result.request, result.writer
     st.divider()
-    st.header(f"{request.dish_name} at {inputs['store']}")
+    if result.allergen_hard_stop:
+        allergens = ", ".join(sorted({c.allergen.replace("_", " ") for c in result.hard_stop_conflicts}))
+        st.header(f"{request.dish_name}: NOT safe for {allergens} as written")
+        st.error(
+            "Do not cook this as written. It contains: "
+            + "; ".join(f"**{c.ingredient}** ({c.allergen.replace('_', ' ')})" for c in result.hard_stop_conflicts)
+            + ". Leave these ingredients out, or choose a different recipe."
+        )
+    else:
+        st.header(f"{request.dish_name} at {inputs['store']}")
+    if result.writer_path == "fallback":
+        st.info("This is a simplified version: the full recipe text didn't pass our safety checks, "
+                "so only the verified ingredients and substitutions are shown.")
     st.write(writer.intro)
 
     left, right = st.columns([1, 1])
@@ -288,7 +320,17 @@ def render_result(result: PipelineResult, inputs: dict, saved_example: bool) -> 
 
 
 shown, shown_inputs = (load_result(FIXTURE_PATH), FIXTURE_INPUTS) if use_fixture else (ss.result, ss.inputs)
-if shown is not None and shown.status == "complete":
+if shown is not None and shown.medical_context:
+    st.info("HomeBite doesn't give medical advice; check with a registered dietitian.")
+if shown is not None and shown.status == "blocked":
+    st.info(shown.message)  # a friendly message, not an error
+elif shown is not None and shown.status == "stopped":
+    st.warning(shown.message)
+    st.caption(f"Limit type: {shown.limit_kind}")
+if shown is not None and shown.status in ("blocked", "stopped"):
+    render_trace(shown)
+    render_usage(shown, saved_example=use_fixture)
+elif shown is not None and shown.status == "complete":
     render_result(shown, shown_inputs, saved_example=use_fixture)
 
 st.divider()

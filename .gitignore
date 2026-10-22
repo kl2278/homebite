@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 .DS_Store
-logs/
+logs/*
+!logs/safety_demo_output.txt
 scripts/sr_legacy.zip
 .pytest_cache/
