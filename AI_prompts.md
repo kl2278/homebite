@@ -221,3 +221,59 @@ Please fix it, keeping the fix small:
 
 Show me the root cause in one sentence, the files you changed, the test results, the live-check message, and git status. Then stop.
 ````
+
+## Prompt 6: token measurement and cost experiment
+
+````
+Now token measurement and a cost-reduction experiment, for the Tokenomics section of my report. Build only what's listed here. This step makes real LLM calls, so follow the call budget.
+
+CALL BUDGET: one dry run with a fake model (free), one live smoke test (dish 1, baseline config), then the full measurement of 10 dishes x 2 configs = 20 live runs. Write results to disk after EVERY run and make the script resumable (skip dish/config pairs already recorded), so a crash never wastes paid runs. Retry a failed run at most once. No other live calls.
+
+0. Real prices (first, before anything else). usage.py currently has placeholder prices. Replace them with the real gpt-6-luna prices from my course slide "Cached Token Cost", per 1M tokens: input $0.10, cached input $0.01, cache write $0.125, output $0.50. Set PRICES_ARE_PLACEHOLDER = False and add a comment naming the source ("course slides, Cached Token Cost slide, gpt-6-luna row"). Change the UI usage caption to "Estimated cost uses gpt-6-luna prices from the course pricing slide." Check whether PydanticAI's usage object reports cache-write tokens for this provider; if it does, track them and price them at the cache-write rate; if it does not, price all non-cached input at the input rate and record in the code comment and later in the summary that cache writes cost 25% more than normal input, so cost may be slightly underestimated. Update any existing tests that check placeholder wording or cost values, and make sure all tests pass. Old entries in logs/usage.jsonl keep their old stored costs; that's fine, since measurement costs are recomputed from tokens.
+
+1. Dish list: create data/measurement_dishes.json with these 10 dishes. Each entry has: id, text (the student's message), store, allergies, dietary preference (use the app's existing values), goal, servings (2 for all), and expected_allergen_conflicts (ingredient words I expect the allergen check to flag; empty list if none).
+   1. "Taiwanese beef noodle soup", Walmart, allergy peanuts, diet none, goal none, expected: none
+   2. "Japanese chicken katsu curry", Whole Foods, allergy wheat/gluten, expected: panko, flour, curry roux
+   3. "Thai pad thai with shrimp", Asian grocery, allergy shellfish, expected: shrimp, dried shrimp
+   4. "Korean kimchi jjigae with tofu", Asian grocery, no allergy, goal lower sodium, expected: none
+   5. "Chinese tomato and egg stir-fry with rice", Aldi, allergy eggs, expected: egg
+   6. "Italian spaghetti alla napoletana", Aldi, no allergy, diet none, goal none, expected: none
+   7. "Indian chicken tikka masala with basmati rice", Trader Joe's, allergy dairy, expected: yogurt, cream, butter, ghee
+   8. "French Provençal ratatouille with a baguette", Trader Joe's, no allergy, dietary preference vegetarian, expected: none
+   9. "Spanish paella with seafood, chicken, and vegetables", Walmart, allergy shellfish, expected: shrimp, mussels, clams
+   10. "Mexican guacamole & pico de gallo", Whole Foods, allergy tree nuts, expected: none
+   Review the expected conflicts and tell me if any look wrong or ambiguous (for example, whether a traditional version of a dish would not contain the allergen at all).
+
+2. scripts/measure_tokens.py:
+   - Use the same entry point the app uses, so the guard classifier stage is included in every run. Settings are passed the way the app passes them.
+   - Keep all safety limits as they are for the app. For this script only, bypass the per-session rate limit (use the smallest possible change and explain it), but keep the per-run token cap and the tool/request limits. Write measurement usage to logs/measurement/ instead of logs/usage.jsonl, so these runs don't count toward the daily cap or pollute the demo logs (add an optional log-path override to usage.py if needed; together with item 0, these are the only allowed changes to usage.py).
+   - Per run, record: dish id, config, timestamp, wall-clock latency, per-stage (guard, intake, analyst, substitution, writer) input / cached input / output tokens (and cache-write tokens if reported), requests and tool calls, status (ok / blocked / error / limit), and the quality fields in item 3. Store TOKENS in the CSV and compute costs when generating the summary, so changing the price constants later only needs --summarize-only to regenerate the summary files without new LLM calls.
+   - Flag suspected gateway cache hits as possible_gateway_cache: latency under 25% of the median of the other runs, or token usage identical to an earlier run.
+   - Order: interleave the two configs per dish and alternate which goes first (dish 1 baseline first, dish 2 cost-saver first, and so on), so prompt-cache warm-up doesn't favor one config.
+   - Options: --dry-run (fake model from tests/fakes.py, no tokens), --only <dish_id>, --configs, --summarize-only.
+
+3. Quality fields, computed in code from the PipelineResult (never by a model):
+   - nutrition_match_rate: ingredients with a verified fdc_id used in the totals divided by all ingredients, plus the unmatched count.
+   - writer_path (original / regenerated / fallback) and any hallucination-guard violation count from the trace.
+   - catalog_valid: share of recommended substitutes that exist in grocery_catalog.csv for the chosen store (should be 100%, but measure it).
+   - hard_to_find count, substituted count, no_substitute count, and whether every substitution has a taste note.
+   - Allergens: expected conflicts, conflict_detected (did the first-pass check flag them), residual_conflict (does the FINAL adapted recipe still contain a conflicting ingredient), uncertain count, all_clear.
+
+4. Cost-saver config: add a settings object (NOT an environment variable; CLAUDE.md allows only the two key variables) with three independent levers, switchable by function argument, default OFF so the app behaves exactly as before:
+   a. Prompt order: put each agent's long static instructions first and the dynamic parts (student text, settings) last, so provider prompt caching can apply. Keep the delimiters, the "data, not instructions" rule and the canary string.
+   b. Trimmed prompts: shorten the Analyst and Writer prompts by removing redundancy. Keep every safety and honesty rule intact.
+   c. Batched lookups: add a search_nutrition_many tool (list of queries in, results per query out) for the Analyst, and when this lever is on, tell the Analyst to look up all ingredients in one or two calls instead of one call per ingredient. The Verifier's check that every fdc_id came from a real search result must also cover ids returned by the batch tool. The single-query tool stays.
+   Add offline tests: with the levers on, prompts still contain the delimiters, the data-not-instructions rule and the canary; batch results equal single-query results for the same queries; the Verifier still ignores an invented fdc_id. Make sure all existing tests still pass.
+
+5. Output files, generated by the script from the CSV (not hand-written):
+   - logs/token_report.csv: one row per run.
+   - logs/token_summary.md, baseline config only: average and p90 of input, cached input and output tokens and of cost per run; cache hit ratio (cached/input); breakdown by stage (tokens, cost, share of total); average tool calls and requests per stage; average latency. Then projected monthly cost for 1 user, 100 users and 10,000 users at 12 runs per user per month (state clearly that 12 is my assumption), including the guard cost. State the price constants used and their source (course pricing slide), and the cache-write limitation if it applies. State what the per-day token cap of 3,000,000 implies as a maximum daily spend. Finish with a short assumptions-and-limits list (hosting not included, provider rate limits at scale not modeled, only 10 dishes with one run each, p90 from 10 samples is rough).
+   - logs/cost_experiment.md: baseline vs cost-saver. A summary table: average input / cached / output tokens, average cost and % change, average requests, average latency, and the quality columns (average nutrition_match_rate, writer fallback and regeneration rate, catalog_valid rate, allergen detection rate = conflict_detected / expected across the five dishes with expected conflicts, residual_conflict count, no_substitute count). Then per-dish rows. Also show how the cost splits between input, cached input and output for each config, since output tokens cost 5x input. Then a plain-language verdict: did the savings hurt quality? With 10 dishes and one run each, say when a difference is within noise instead of overclaiming. Do not tune anything to make the numbers look better.
+   - Update .gitignore so logs/token_report.csv, logs/token_summary.md and logs/cost_experiment.md are committed (exceptions like the existing one for the safety demo output). Everything else in logs/ stays ignored.
+
+6. Run order: dry run first, then the live smoke test on dish 1 (baseline), show me its row, then the full 20-run measurement. If more than 2 runs fail or hit limits, stop and show me what happened before continuing.
+
+7. Follow the prompt-log rule from CLAUDE.md, confirm gpt-6-luna is still the only model name and .env is not staged, and commit "Prompt 6: token measurement and cost experiment". Don't push.
+
+Show me: the price change in usage.py, the dish table with expected conflicts (and any you think are wrong), the test results, the smoke-test row, the full contents of token_summary.md and cost_experiment.md, any runs flagged possible_gateway_cache, anything that failed, the total tokens and cost of the whole experiment, and git status. Then stop.
+````

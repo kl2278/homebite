@@ -282,6 +282,8 @@ def render_usage(result: PipelineResult, saved_example: bool) -> None:
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     if usage.PRICES_ARE_PLACEHOLDER:
         st.caption("Estimated cost uses placeholder prices.")
+    else:
+        st.caption("Estimated cost uses gpt-6-luna prices from the course pricing slide.")
 
 
 def render_result(result: PipelineResult, inputs: dict, saved_example: bool) -> None:

@@ -6,3 +6,6 @@ logs/*
 !logs/safety_demo_output.txt
 scripts/sr_legacy.zip
 .pytest_cache/
+!logs/token_report.csv
+!logs/token_summary.md
+!logs/cost_experiment.md

@@ -1,0 +1,134 @@
+[
+  {
+    "id": "d01",
+    "text": "Taiwanese beef noodle soup",
+    "store": "Walmart",
+    "allergies": [
+      "peanuts"
+    ],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": []
+  },
+  {
+    "id": "d02",
+    "text": "Japanese chicken katsu curry",
+    "store": "Whole Foods",
+    "allergies": [
+      "wheat_gluten"
+    ],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": [
+      "panko",
+      "flour",
+      "curry roux"
+    ]
+  },
+  {
+    "id": "d03",
+    "text": "Thai pad thai with shrimp",
+    "store": "Asian grocery",
+    "allergies": [
+      "shellfish"
+    ],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": [
+      "shrimp",
+      "dried shrimp"
+    ]
+  },
+  {
+    "id": "d04",
+    "text": "Korean kimchi jjigae with tofu",
+    "store": "Asian grocery",
+    "allergies": [],
+    "diet": "none",
+    "goal": "lower sodium",
+    "servings": 2,
+    "expected_allergen_conflicts": []
+  },
+  {
+    "id": "d05",
+    "text": "Chinese tomato and egg stir-fry with rice",
+    "store": "Aldi",
+    "allergies": [
+      "eggs"
+    ],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": [
+      "egg"
+    ]
+  },
+  {
+    "id": "d06",
+    "text": "Italian spaghetti alla napoletana",
+    "store": "Aldi",
+    "allergies": [],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": []
+  },
+  {
+    "id": "d07",
+    "text": "Indian chicken tikka masala with basmati rice",
+    "store": "Trader Joe's",
+    "allergies": [
+      "dairy"
+    ],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": [
+      "yogurt",
+      "cream",
+      "butter",
+      "ghee"
+    ]
+  },
+  {
+    "id": "d08",
+    "text": "French Provençal ratatouille with a baguette",
+    "store": "Trader Joe's",
+    "allergies": [],
+    "diet": "vegetarian",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": []
+  },
+  {
+    "id": "d09",
+    "text": "Spanish paella with seafood, chicken, and vegetables",
+    "store": "Walmart",
+    "allergies": [
+      "shellfish"
+    ],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": [
+      "shrimp",
+      "mussels",
+      "clams"
+    ]
+  },
+  {
+    "id": "d10",
+    "text": "Mexican guacamole & pico de gallo",
+    "store": "Whole Foods",
+    "allergies": [
+      "tree_nuts"
+    ],
+    "diet": "none",
+    "goal": "none",
+    "servings": 2,
+    "expected_allergen_conflicts": []
+  }
+]

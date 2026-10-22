@@ -69,7 +69,11 @@ class FakeLLM:
                 n = self.analyst_calls or 1
                 response = ModelResponse(parts=[ToolCallPart("search_nutrition", {"query": "rice"}) for _ in range(n)])
             elif not has_tool_result:
-                response = ModelResponse(parts=[ToolCallPart("search_nutrition", {"query": q}) for q in ("white rice raw", "egg raw")])
+                queries = ["white rice raw", "egg raw"]
+                if any(t.name == "search_nutrition_many" for t in info.function_tools):  # the batched-lookup lever is on
+                    response = ModelResponse(parts=[ToolCallPart("search_nutrition_many", {"queries": queries})])
+                else:
+                    response = ModelResponse(parts=[ToolCallPart("search_nutrition", {"query": q}) for q in queries])
             else:
                 response = self._final(info, {"ingredients": self.dish})
         elif "local substitutes" in text:

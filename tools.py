@@ -38,6 +38,12 @@ class NutritionSearchResult(BaseModel):
     matches: list[NutritionItem]
 
 
+class NutritionBatchResult(BaseModel):
+    """Results of several searches done in one call: one NutritionSearchResult per query, in order."""
+
+    results: list[NutritionSearchResult]
+
+
 class CatalogItem(BaseModel):
     store: str
     product_name: str
@@ -239,6 +245,18 @@ def search_nutrition(query: str, limit: int = 5) -> NutritionSearchResult:
     order = _match_all_words(query, [i.description for i in items])
     matches = [items[i] for i in order[: max(limit, 0)]]
     return NutritionSearchResult(found=bool(matches), query=query, matches=matches)
+
+
+def search_nutrition_many(queries: list[str], limit: int = 5) -> NutritionBatchResult:
+    """Look up several foods in the USDA nutrition table in ONE call.
+
+    Args:
+        queries: Food names, for example ["beef chuck", "bok choy", "soy sauce"]. Same rules as search_nutrition.
+        limit: Maximum matches per query.
+
+    Returns one result per query, in the same order; each is exactly what search_nutrition would return.
+    """
+    return NutritionBatchResult(results=[search_nutrition(q, limit) for q in queries])
 
 
 def _normalize_store(name: str) -> str:
