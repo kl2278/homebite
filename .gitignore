@@ -9,3 +9,4 @@ scripts/sr_legacy.zip
 !logs/token_report.csv
 !logs/token_summary.md
 !logs/cost_experiment.md
+!logs/allergen_fix_check.md

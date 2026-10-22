@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import tools  # noqa: E402
 from tools import (  # noqa: E402
     ALLERGENS,
     CATALOG_PATH,
@@ -192,3 +193,65 @@ def test_search_nutrition_ranks_the_food_itself_first():
 def test_search_nutrition_ignores_filler_words_only_as_a_fallback():
     assert search_nutrition("garlic raw").found
     assert search_nutrition("star anise spice").found is False  # not in USDA data: no guessing
+
+
+# ---- allergen keywords added after the token measurement (panko, seafood mix, ...)
+
+NEW_KEYWORDS = [
+    ("wheat_gluten", ["panko", "breadcrumbs", "bread crumbs", "curry roux", "roux", "baguette", "linguine", "penne", "macaroni",
+                      "udon", "ramen noodles", "flour tortillas", "seitan"]),
+    ("shellfish", ["seafood", "seafood mix", "prawns", "crab meat", "lobster", "crayfish", "clams", "mussels", "oyster sauce", "scallops"]),
+    ("dairy", ["butter", "ghee", "heavy cream", "crema", "plain yogurt", "paneer", "queso fresco", "mozzarella", "buttermilk"]),
+    ("eggs", ["egg noodles", "mayonnaise", "egg yolk", "omelette"]),
+    ("fish", ["fish sauce", "anchovies", "anchovy paste", "salmon", "sea bass", "bonito flakes", "surimi"]),
+    ("tree_nuts", ["marzipan", "almond flour", "pine nuts"]),
+    ("soy", ["tofu", "doenjang", "soy milk"]),
+    ("sesame", ["tahini", "sesame oil", "halva"]),
+    ("peanuts", ["peanut butter", "groundnut oil"]),
+]
+
+
+@pytest.mark.parametrize("allergen, names", NEW_KEYWORDS)
+def test_each_keyword_is_a_definite_conflict_for_its_category(allergen, names):
+    for name in names:
+        result = check_allergens([name], [allergen])
+        assert [c.allergen for c in result.conflicts] == [allergen], name
+
+
+def test_panko_is_a_definite_gluten_conflict_but_gluten_free_panko_is_only_uncertain():
+    assert check_allergens(["panko"], ["wheat_gluten"]).conflicts
+    labelled = check_allergens(["gluten-free panko"], ["wheat_gluten"])
+    assert labelled.conflicts == [] and [u.ingredient for u in labelled.uncertain] == ["gluten-free panko"]
+    assert "check the label" in labelled.uncertain[0].reason and labelled.all_clear is False
+
+
+@pytest.mark.parametrize("name, allergen", [
+    ("dairy-free butter", "dairy"), ("non-dairy creamer cream", "dairy"), ("egg-free mayonnaise", "eggs"),
+    ("peanut-free peanut butter", "peanuts"), ("nut-free almond milk", "tree_nuts"), ("soy-free tofu", "soy"),
+    ("shellfish-free seafood mix", "shellfish"), ("fish-free fish sauce", "fish"), ("sesame-free tahini", "sesame"),
+])
+def test_free_from_labels_never_make_a_definite_conflict(name, allergen):
+    result = check_allergens([name], [allergen])
+    assert result.conflicts == [] and result.uncertain and result.all_clear is False
+
+
+def test_a_free_from_label_only_protects_its_own_allergen():
+    result = check_allergens(["gluten-free soy sauce"], ["soy", "wheat_gluten"])
+    assert [c.allergen for c in result.conflicts] == ["soy"]
+    assert [u.ingredient for u in result.uncertain] == ["gluten-free soy sauce"]
+
+
+def test_seafood_mix_is_flagged_for_shellfish():
+    assert check_allergens(["seafood mix"], ["shellfish"]).conflicts
+
+
+def test_look_alike_words_are_still_not_flagged():
+    for name in ["nutmeg", "eggplant", "butternut squash", "peanutty"[:0] or "buttercup squash", "cocoa butterfly pea tea"]:
+        assert check_allergens([name], ["tree_nuts", "eggs", "dairy"]).conflicts == [], name
+    assert check_allergens(["bassoon-shaped pasta"], ["fish"]).conflicts == []  # "bass" must be a whole word
+
+
+def test_everyday_ingredients_are_unaffected():
+    result = check_allergens(["rice", "tomato", "olive oil", "onion", "garlic", "salt"], list(tools.ALLERGENS))
+    assert result.conflicts == [] and result.uncertain == [] and result.all_clear
+    assert check_allergens(["soy sauce"], ["wheat_gluten"]).conflicts  # unchanged: was already a definite conflict

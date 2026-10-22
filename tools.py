@@ -350,6 +350,41 @@ ALLERGEN_KEYWORDS = {
     "dairy": ["milk", "cheese", "butter", "cream", "yogurt", "yoghurt", "ghee", "paneer", "whey", "casein", "kefir"],
     "sesame": ["sesame", "tahini"],
 }
+
+# Added after the token measurement found "panko" kept in a gluten-allergy recipe. Each entry clearly contains the allergen.
+EXTRA_ALLERGEN_KEYWORDS = {
+    "wheat_gluten": ["panko", "breadcrumb", "bread crumb", "roux", "curry roux", "baguette", "ciabatta", "bagel", "brioche",
+                     "croissant", "pretzel", "linguine", "fettuccine", "penne", "macaroni", "rigatoni", "fusilli", "farfalle",
+                     "orzo", "lasagna", "lasagne", "ravioli", "gnocchi", "udon", "ramen", "durum", "farro", "spelt", "tempura",
+                     "katsu", "schnitzel", "breaded", "battered", "crouton"],
+    "shellfish": ["seafood", "seafood mix", "shellfish", "crayfish", "crawfish", "langoustine", "cockle", "abalone", "krill",
+                  "octopus", "cuttlefish"],
+    "dairy": ["crema", "queso", "mozzarella", "cheddar", "parmesan", "parmigiano", "pecorino", "feta", "ricotta", "mascarpone",
+              "gouda", "brie", "halloumi", "cotija", "buttermilk", "creme fraiche", "half and half", "labneh", "skyr"],
+    "eggs": ["yolk", "albumin", "hollandaise", "omelet", "omelette", "frittata", "quiche", "tamago"],
+    "fish": ["bass", "snapper", "halibut", "haddock", "herring", "pollock", "swordfish", "eel", "bonito", "katsuobushi",
+             "surimi", "roe", "caviar"],
+    "tree_nuts": ["marzipan", "praline", "frangipane", "gianduja"],
+    "soy": ["doenjang", "yuba", "okara"],
+    "sesame": ["halva", "halvah", "gomasio", "benne"],
+    "peanuts": [],  # already covered: peanut, groundnut
+}
+for _allergen, _extra in EXTRA_ALLERGEN_KEYWORDS.items():
+    ALLERGEN_KEYWORDS[_allergen] = ALLERGEN_KEYWORDS[_allergen] + [w for w in _extra if w not in ALLERGEN_KEYWORDS[_allergen]]
+
+# An explicit free-from label ("gluten-free panko") is not a definite conflict: the label should still be checked.
+FREE_FROM_LABELS = {
+    "wheat_gluten": r"gluten[- ]free|wheat[- ]free",
+    "dairy": r"dairy[- ]free|non[- ]dairy|milk[- ]free",
+    "eggs": r"egg[- ]free",
+    "peanuts": r"peanut[- ]free",
+    "tree_nuts": r"(tree[- ])?nut[- ]free",
+    "shellfish": r"shellfish[- ]free",
+    "fish": r"fish[- ]free",
+    "soy": r"soya?[- ]free",
+    "sesame": r"sesame[- ]free",
+}
+
 # Words that make an ingredient's allergens unknowable from its name alone.
 AMBIGUOUS_WORDS = ["sauce", "paste", "broth", "stock", "seasoning", "mix", "dressing", "noodle", "bar",
                    "spread", "marinade", "powder blend", "curry", "dumpling", "wrapper", "chips", "cereal", "dough"]
@@ -401,8 +436,13 @@ def check_allergens(ingredients: list[str | CatalogItem], allergens: list[str]) 
         name = ingredient
         text = name.lower()
         hits = [a for a in wanted if any(_word_in(text, k) for k in ALLERGEN_KEYWORDS[a])]
+        labelled_free = [a for a in hits if re.search(FREE_FROM_LABELS[a], text)]
+        hits = [a for a in hits if a not in labelled_free]
         conflicts += [AllergenConflict(ingredient=name, allergen=a, reason="name contains an allergen keyword") for a in hits]
-        if hits:
+        if labelled_free:
+            names = ", ".join(a.replace("_", " ") for a in labelled_free)
+            uncertain.append(UncertainIngredient(ingredient=name, reason=f"labelled free of {names}, but check the label"))
+        if hits or labelled_free:
             continue
         if any(_word_in(text, w) for w in AMBIGUOUS_WORDS):
             uncertain.append(UncertainIngredient(ingredient=name, reason="processed food; allergens depend on the product label"))
