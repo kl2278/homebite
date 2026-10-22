@@ -65,3 +65,26 @@ Next, the project skeleton and the model connection. Build only what's listed he
 
 Show me the test output and git status, then stop.
 ````
+
+## Prompt 2: data layer and tools
+
+````
+Next, the data layer and tools. No agents and no LLM calls in this step. Build only what's listed here.
+
+1. data/nutrition.csv: a compact nutrition table (per 100 g) built from USDA FoodData Central public-domain data (SR Legacy / Foundation Foods). Write scripts/build_nutrition.py that downloads the official USDA CSV, keeps roughly 1,500-3,000 common foods, and keeps only: fdc_id, description, kcal, protein_g, fat_g, carbs_g, fiber_g, sugar_g, sodium_mg. Make sure staples common in East Asian, South Asian, Latin American, Middle Eastern and European cooking are included (tofu, bok choy, daikon, rice varieties, noodles, soy sauce, miso, lentils, chickpeas, tortillas, yogurt, olive oil, common cheeses, etc.). [OPTIONAL: my home cuisine is ___, so make sure its staples are covered.] Commit the resulting CSV so the app never needs to download anything. If the download is blocked, tell me exactly which file to download and where to put it. Never invent nutrition numbers.
+
+2. data/grocery_catalog.csv: columns store, product_name, category, usda_match_description (must exactly match a description in nutrition.csv), allergen_tags (semicolon-separated from: peanuts, tree_nuts, shellfish, fish, soy, wheat_gluten, eggs, dairy, sesame; empty if none), price_usd, verified (true/false, default false), source_note. Build a starter catalog of about 150 realistic items across: Walmart, Trader Joe's, Whole Foods, Aldi, "Asian grocery". Add data/README.md stating clearly that this is a starter set for demo purposes, prices are illustrative and not current, and that I will check entries against real store listings and set verified=true only for items I confirm. Write a test that every usda_match_description exists in nutrition.csv.
+
+3. tools.py: plain Python functions with full type hints and clear docstrings (they will be registered as PydanticAI tools in the next step, so the docstrings and parameter names matter). Return Pydantic models or plain dicts, always with a "found" flag where relevant:
+   - search_nutrition(query: str, limit: int = 5): fuzzy match against nutrition.csv; return fdc_id, description and per-100g values.
+   - search_catalog(ingredient_query: str, store: str, exclude_allergens: list[str] = []): matching items at that store, excluding listed allergens; include price and verified flag.
+   - compute_recipe_nutrition(ingredients: list of {fdc_id, grams}, servings: int): per-serving totals computed IN CODE, never by a model. Report any ingredient whose fdc_id was not found instead of silently skipping it.
+   - check_allergens(ingredients: list of names or catalog items, allergens: list[str]): return conflicts, plus an "uncertain" list for ingredients whose allergen status can't be determined from the catalog tags or the keyword list. Missing data must never be reported as safe.
+   Use the standard library for fuzzy matching (e.g. difflib) unless it is clearly inadequate; if you add a dependency, update requirements.txt.
+
+4. tests/test_tools.py with pytest covering: each tool's normal case, a not-found query that returns found=False instead of guessing, an allergen conflict (e.g. peanut), an "uncertain" allergen case, and a nutrition computation checked by hand against known values.
+
+5. Run the tests and show me they pass. Then follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Prompt 2: data layer and tools". Don't push.
+
+Show me: the row counts for both CSVs, a few sample rows of each, the test results, and git status. Then stop.
+````
