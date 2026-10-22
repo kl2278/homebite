@@ -16,7 +16,7 @@ You need Python and a `.env` file with a Portkey API key (see [.env](#env) below
 
 **macOS / Linux**
 
-1. `git clone <repo-url>` and `cd` into the folder.
+1. `git clone https://github.com/kl2278/homebite.git` and `cd` into the folder.
 2. `python3 -m venv .venv`
 3. `source .venv/bin/activate`
 4. `pip install -r requirements.txt`
@@ -26,7 +26,7 @@ You need Python and a `.env` file with a Portkey API key (see [.env](#env) below
 
 **Windows (PowerShell)**
 
-1. `git clone <repo-url>` and `cd` into the folder.
+1. `git clone https://github.com/kl2278/homebite.git` and `cd` into the folder.
 2. `py -m venv .venv`
 3. `.venv\Scripts\Activate.ps1`
 4. `pip install -r requirements.txt`
