@@ -88,3 +88,31 @@ Next, the data layer and tools. No agents and no LLM calls in this step. Build o
 
 Show me: the row counts for both CSVs, a few sample rows of each, the test results, and git status. Then stop.
 ````
+
+## Prompt 3: agents and pipeline
+
+````
+Now the agents. Build only what's listed here. This step makes real LLM calls, so keep test runs few.
+
+1. Two small data/tool fixes first:
+   a. In tools.py, the allergen keyword "nut" matches words like "nutmeg". Make keyword matching word-based (for example, match whole words or a curated list such as almond, walnut, pecan, cashew, pistachio, hazelnut, macadamia, "peanut"), keep it conservative for real nuts, and add tests: nutmeg is not flagged, almond is.
+   b. Check whether these foods exist in the full USDA SR Legacy download but were dropped by my filters in scripts/build_nutrition.py: raw chicken breast (meat only), glutinous rice (raw), and also ground beef raw, pork shoulder raw, salmon raw, shrimp raw, egg noodles, and rice noodles. If they exist, change the build script to always keep them (a must-include list), rebuild nutrition.csv, and update catalog entries that used fallbacks. If USDA really has no entry, say so. Don't invent numbers. Make sure all tests still pass.
+
+2. In agents.py, build five stages with plain Python orchestration, using PydanticAI Agents with output_type set to Pydantic models. Use build_model() for the model. Define a RunDeps dataclass (store, allergies, dietary preferences, goals) passed as deps. Register tools via PydanticAI as thin wrappers around the functions in tools.py. The wrapper for search_catalog must take store and exclude_allergens from RunDeps, NOT from the model's arguments, so the model can't search the wrong store or drop an allergy.
+
+   - Intake Agent (no tools): turns the student's free text plus the sidebar settings into a structured Request: dish_name, cuisine_origin, servings, goals. Its output type is a union: either a Request or a ClarifyingQuestion (one question) when the dish is too vague to work with. Don't guess.
+   - Dish Analyst Agent (tool: search_nutrition): breaks the dish into ingredients with approximate grams per serving. For each ingredient: role (flavor base / protein / starch / sauce / texture), a flag hard_to_find_abroad, and an fdc_id found via search_nutrition (null if no good match; never invent an id).
+   - Substitution Agent (tools: search_catalog, search_nutrition): only for ingredients flagged hard_to_find_abroad. For each, choose the best product that actually comes back from search_catalog at the chosen store. For every choice, give a one-line taste/texture note and a one-line reason. If nothing suitable exists, say so honestly with status "no_substitute" and offer the closest option or a "skip it" suggestion. Cap its tool calls using PydanticAI usage limits (check the current docs for the right UsageLimits settings) at 6 tool calls per run.
+   - Verifier (PURE CODE, no LLM): validate in code that each chosen substitute exists in grocery_catalog.csv for the chosen store (otherwise downgrade it to no_substitute); build the original and adapted ingredient lists (ingredients not flagged hard_to_find_abroad are kept as-is and labeled "common item, not checked against the catalog"); map to fdc_ids; call compute_recipe_nutrition for both versions; call check_allergens on the adapted list. Output a side-by-side comparison per serving. Every number must come only from tool results. List any ingredients that could not be matched to USDA data instead of dropping them silently.
+   - Writer Agent (no tools): receives the Verifier output and writes a warm, concise answer for a student: a short intro, cooking steps, and a short "what will taste different" note. It must NOT state any nutrition number. Code renders the ingredient list, substitutions table and nutrition table from the Verifier data.
+
+3. Control flow: Intake -> Analyst -> Substitution -> Verifier -> Writer, in a function run_pipeline(user_text, settings) that returns a PipelineResult. If Intake returns a ClarifyingQuestion, stop and return it. Record every agent run in the usage tracker with the agent name.
+
+4. The PipelineResult must include a full trace: for each stage, a short input summary, each tool call (name, arguments, short result summary), the structured output, and token usage. Pull tool calls from the PydanticAI run messages.
+
+5. Create run_example.py that runs one example end to end ("Taiwanese beef noodle soup", store Walmart, allergy peanuts) and prints the trace, the final answer and the token totals per stage. Then run it once with a deliberately vague input ("something from home") to show the clarifying-question path. Fix issues until both work, keeping the number of real runs small.
+
+6. Follow the prompt-log rule from CLAUDE.md, confirm gpt-6-luna is still the only model name and .env is not staged, and commit "Prompt 3: agents and pipeline". Don't push.
+
+Show me: the test results, the full output of both runs, token totals per stage, and git status. Then stop.
+````

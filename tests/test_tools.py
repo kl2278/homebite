@@ -170,3 +170,25 @@ def test_allergen_invalid_allergen_name_is_not_clear():
     result = check_allergens(["rice"], ["peenuts"])
     assert result.invalid_allergens == ["peenuts"]
     assert result.all_clear is False
+
+
+def test_allergen_keywords_match_whole_words_only():
+    # "nut" must not match nutmeg, "egg" must not match eggplant, "butter" must not match butternut squash.
+    result = check_allergens(["nutmeg", "eggplant", "butternut squash"], ["tree_nuts", "eggs", "dairy"])
+    assert result.conflicts == []
+
+
+def test_allergen_real_tree_nuts_are_flagged():
+    for name in ["almond flour", "walnuts", "pecan pie", "cashew butter", "mixed nuts", "pine nuts"]:
+        result = check_allergens([name], ["tree_nuts"])
+        assert [c.allergen for c in result.conflicts] == ["tree_nuts"], name
+
+
+def test_search_nutrition_ranks_the_food_itself_first():
+    assert search_nutrition("soy sauce").matches[0].description.startswith("Soy sauce")
+    assert "raw" in search_nutrition("tomato").matches[0].description
+
+
+def test_search_nutrition_ignores_filler_words_only_as_a_fallback():
+    assert search_nutrition("garlic raw").found
+    assert search_nutrition("star anise spice").found is False  # not in USDA data: no guessing

@@ -1,0 +1,182 @@
+######## EXAMPLE 1: Taiwanese beef noodle soup, Walmart, peanut allergy ########
+
+=== TRACE ===
+
+[intake] input: Student message: Taiwanese beef noodle soup
+Settings: store=Walmart; allergies=['peanuts']; dietary preferences=none; goals=none
+  output: {'dish_name': 'Taiwanese beef noodle soup', 'cuisine_origin': 'Taiwanese', 'servings': 2, 'goals': []}
+  usage: {'input_tokens': 234, 'cached_input_tokens': 0, 'output_tokens': 42, 'requests': 1, 'estimated_cost_usd': 0.000402}
+
+[analyst] input: Request: {"dish_name":"Taiwanese beef noodle soup","cuisine_origin":"Taiwanese","servings":2,"goals":[]}
+Settings: store=Walmart; allergies=['peanuts']; dietary preferences=none; goals=none
+  tool search_nutrition({'query': 'beef shank', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'wheat noodles', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'beef stock', 'limit': 3}) -> found=True; 3 matches: ['Soup, stock, beef, home-prepared', 'Soup, mushroom with beef stock, canned, conde']
+  tool search_nutrition({'query': 'soy sauce', 'limit': 3}) -> found=True; 3 matches: ['Soy sauce, reduced sodium, made from hydrolyz', 'Soy sauce made from soy (tamari)']
+  tool search_nutrition({'query': 'doubanjiang', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'tomato', 'limit': 3}) -> found=True; 3 matches: ['Tomatoes, green, raw', 'Tomatoes, orange, raw']
+  tool search_nutrition({'query': 'onion', 'limit': 3}) -> found=True; 3 matches: ['Onions, raw', 'Onions, sweet, raw']
+  tool search_nutrition({'query': 'garlic', 'limit': 3}) -> found=True; 3 matches: ['Garlic, raw', 'Garlic bread, frozen']
+  tool search_nutrition({'query': 'ginger', 'limit': 3}) -> found=True; 3 matches: ['Ginger root, raw', 'Ginger root, pickled, canned, with artificial']
+  tool search_nutrition({'query': 'scallion', 'limit': 3}) -> found=True; 1 matches: ['Onions, spring or scallions (includes tops an']
+  tool search_nutrition({'query': 'star anise', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'Sichuan peppercorn', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'cinnamon', 'limit': 3}) -> found=True; 3 matches: ['Cinnamon buns, frosted (includes honey buns)', 'Bread, cinnamon']
+  tool search_nutrition({'query': 'bay leaf', 'limit': 3}) -> found=True; 1 matches: ['Spices, bay leaf']
+  tool search_nutrition({'query': 'rice wine', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'bok choy', 'limit': 3}) -> found=True; 2 matches: ['Cabbage, chinese (pak-choi), raw', 'Cabbage, chinese (pak-choi), cooked, boiled, ']
+  tool search_nutrition({'query': 'pickled mustard greens', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'rock sugar', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'beef chuck', 'limit': 3}) -> found=True; 3 matches: ['Beef, chuck for stew, separable lean and fat,', 'Beef, chuck for stew, separable lean and fat,']
+  tool search_nutrition({'query': 'egg noodles', 'limit': 3}) -> found=True; 3 matches: ['Noodles, egg, dry, enriched', 'Noodles, egg, dry, unenriched']
+  tool search_nutrition({'query': 'red tomatoes raw', 'limit': 3}) -> found=True; 1 matches: ['Tomatoes, red, ripe, raw, year round average']
+  tool search_nutrition({'query': 'chili bean sauce', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'mustard greens', 'limit': 3}) -> found=True; 3 matches: ['Mustard greens, raw', 'Mustard greens, cooked, boiled, drained, with']
+  tool search_nutrition({'query': 'cooking wine', 'limit': 3}) -> found=False; 0 matches: []
+  tool search_nutrition({'query': 'granulated sugar', 'limit': 3}) -> found=True; 2 matches: ['Sugars, granulated', 'Sweeteners, sugar substitute, granulated, bro']
+  tool search_nutrition({'query': 'ground cinnamon', 'limit': 3}) -> found=True; 1 matches: ['Spices, cinnamon, ground']
+  tool search_nutrition({'query': 'anise seed', 'limit': 3}) -> found=True; 1 matches: ['Spices, anise seed']
+  tool search_nutrition({'query': 'rice noodles', 'limit': 3}) -> found=True; 3 matches: ['Rice noodles, dry', 'Rice noodles, cooked']
+  tool search_nutrition({'query': 'vegetable oil', 'limit': 3}) -> found=True; 3 matches: ['Vegetable oil, palm kernel', 'Vegetable oil-butter spread, reduced calorie']
+  output: {'ingredients': [{'name': 'beef chuck', 'grams_per_serving': 180.0, 'role': 'protein', 'hard_to_find_abroad': False, 'fdc_id': 170810}, {'name': 'wheat noodles', 'grams_per_serving': 100.0, 'role': 'starch', 'hard_to_find_abroad': False, 'fdc_id': 169731}, {'name': 'beef stock', 'grams_per_serving': 400.0, 'role': 'sauce', 'hard_to_find_abroad': False, 'fdc_id': 172883}, {'name': 'soy sauce', 'grams_per_serving': 18.0, 'role': 'sauce', 'hard_to_find_abroad': False, 'fdc_id': 174278}, {'name': 'doubanjiang', 'grams_per_serving': 10.0, 'role': 'sauce', 'hard_to_find_abroad': True, 'fdc_id': None}, {'name': 'vegetable oil', 'grams_per_serving': 5.0, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 172370}, {'name': 'tomato', 'grams_per_serving': 45.0, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 170457}, {'name': 'onion', 'grams_per_serving': 30.0, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 170000}, {'name': 'garlic', 'grams_per_serving': 5.0, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 169230}, {'name': 'ginger', 'grams_per_serving': 8.0, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 169231}, {'name': 'scallion', 'grams_per_serving': 10.0, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 170005}, {'name': 'star anise', 'grams_per_serving': 0.3, 'role': 'flavor_base', 'hard_to_find_abroad': True, 'fdc_id': None}, {'name': 'Sichuan peppercorn', 'grams_per_serving': 0.2, 'role': 'flavor_base', 'hard_to_find_abroad': True, 'fdc_id': None}, {'name': 'cinnamon', 'grams_per_serving': 0.3, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 171320}, {'name': 'bay leaf', 'grams_per_serving': 0.1, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 170917}, {'name': 'Shaoxing wine', 'grams_per_serving': 10.0, 'role': 'flavor_base', 'hard_to_find_abroad': True, 'fdc_id': None}, {'name': 'sugar', 'grams_per_serving': 3.0, 'role': 'flavor_base', 'hard_to_find_abroad': False, 'fdc_id': 169655}, {'name': 'bok choy', 'grams_per_serving': 60.0, 'role': 'texture', 'hard_to_find_abroad': False, 'fdc_id': 170390}, {'name': 'pickled mustard greens', 'grams_per_serving': 12.0, 'role': 'texture', 'hard_to_find_abroad': True, 'fdc_id': 169256}]}
+  usage: {'input_tokens': 15396, 'cached_input_tokens': 8449, 'output_tokens': 2688, 'requests': 4, 'estimated_cost_usd': 0.019811}
+
+[substitution] input: 5 hard-to-find ingredients
+  tool search_catalog({'ingredient_query': 'chili garlic sauce'}) -> found=True; 1 items: ['Huy Fong Chili Garlic Sauce 18 oz']
+  tool search_catalog({'ingredient_query': 'cinnamon'}) -> found=False; 0 items: []
+  tool search_catalog({'ingredient_query': 'black pepper'}) -> found=True; 1 items: ['Great Value Ground Black Pepper 3 oz']
+  tool search_catalog({'ingredient_query': 'dry sherry'}) -> found=False; 0 items: []
+  tool search_catalog({'ingredient_query': 'sauerkraut'}) -> found=False; 0 items: []
+  output: {'substitutions': [{'original_name': 'doubanjiang', 'status': 'substituted', 'product_name': 'Huy Fong Chili Garlic Sauce 18 oz', 'taste_texture_note': 'Adds chili heat, garlic, and a similar saucy texture, but lacks doubanjiang’s fermented bean depth.', 'reason': 'A practical Walmart sauce stand-in; use a little less if you want to avoid making the broth too garlicky.', 'closest_option_or_skip': None}, {'original_name': 'star anise', 'status': 'no_substitute', 'product_name': None, 'taste_texture_note': 'Skipping it leaves out the soup’s distinctive sweet licorice-like aroma.', 'reason': 'No suitable spice was found in the store search.', 'closest_option_or_skip': 'skip it'}, {'original_name': 'Sichuan peppercorn', 'status': 'substituted', 'product_name': 'Great Value Ground Black Pepper 3 oz', 'taste_texture_note': 'Adds peppery warmth, but not Sichuan peppercorn’s citrusy aroma or numbing tingle.', 'reason': 'A weaker but available pepper substitute for a small amount in the broth.', 'closest_option_or_skip': None}, {'original_name': 'Shaoxing wine', 'status': 'no_substitute', 'product_name': None, 'taste_texture_note': 'Skipping it loses some mellow, wine-like aroma in the broth.', 'reason': 'Dry sherry, a common cooking substitute, was not found in the store search.', 'closest_option_or_skip': 'skip it'}, {'original_name': 'pickled mustard greens', 'status': 'no_substitute', 'product_name': None, 'taste_texture_note': 'Skipping them means missing their salty, sour crunch and contrast with the beef.', 'reason': 'No suitable pickled vegetable was found in the store search.', 'closest_option_or_skip': 'skip it'}]}
+  usage: {'input_tokens': 1638, 'cached_input_tokens': 0, 'output_tokens': 612, 'requests': 2, 'estimated_cost_usd': 0.004086}
+
+[verifier] input: 19 ingredients, 5 proposed substitutions
+  note: Pure code, no LLM.
+  tool catalog_check({'product_name': 'Huy Fong Chili Garlic Sauce 18 oz', 'store': 'Walmart'}) -> found in catalog
+  tool catalog_check({'product_name': 'Great Value Ground Black Pepper 3 oz', 'store': 'Walmart'}) -> found in catalog
+  tool compute_recipe_nutrition({'version': 'original', 'ingredients': 15, 'servings': 2}) -> found=True; per serving kcal=785.86; missing=[]
+  tool compute_recipe_nutrition({'version': 'adapted', 'ingredients': 16, 'servings': 2}) -> found=True; per serving kcal=792.41; missing=[]
+  tool check_allergens({'ingredients': 16, 'allergens': ['peanuts']}) -> conflicts=0; uncertain=5; all_clear=False
+  output: {'unmatched': ['doubanjiang', 'star anise', 'Sichuan peppercorn', 'Shaoxing wine'], 'omitted': ['star anise', 'Shaoxing wine', 'pickled mustard greens'], 'comparison': {'kcal': {'original': 785.86, 'adapted': 792.41, 'change': 6.55}, 'protein_g': {'original': 65.52, 'adapted': 65.39, 'change': -0.13}, 'fat_g': {'original': 18.88, 'adapted': 18.93, 'change': 0.05}, 'carbs_g': {'original': 90.83, 'adapted': 92.32, 'change': 1.49}, 'fiber_g': {'original': 6.19, 'adapted': 6.08, 'change': -0.11}, 'sugar_g': {'original': 11.09, 'adapted': 12.44, 'change': 1.35}, 'sodium_mg': {'original': 2009.11, 'adapted': 2219.14, 'change': 210.03}}, 'allergen_all_clear': False}
+  usage: no LLM call
+
+[writer] input: ingredients and substitutions (no nutrition numbers)
+  output: {'intro': 'Here’s a cozy Taiwanese beef noodle soup for two, adapted to the ingredients you have. A gentle simmer will make the beef tender and the broth deeply savory.', 'steps': ['Cut the beef chuck into bite-size pieces. Chop the tomato, onion, garlic, ginger, and scallion; slice the bok choy.', 'Heat the vegetable oil in a pot. Add the onion, garlic, and ginger and cook until fragrant. Stir in the chili garlic sauce, then add the beef and brown it lightly.', 'Add the tomato, beef stock, soy sauce, and cinnamon. Bring to a boil, then cover and simmer gently until the beef is tender, about 1½–2 hours.', 'Cook the wheat noodles according to their package directions. Add the bok choy to the soup for the last few minutes, until tender.', 'Divide the noodles between two bowls, ladle over the beef and broth, and garnish with the scallion.'], 'taste_differences': 'The chili garlic sauce adds heat and garlic but lacks doubanjiang’s fermented bean depth. Star anise, Shaoxing wine, and pickled mustard greens are omitted, so the broth misses their sweet licorice-like aroma and mellow wine notes, and the bowls lack the greens’ salty-sour crunch. The listed black pepper amount is 0 g, so it won’t add the peppery warmth of the suggested Sichuan peppercorn substitute.'}
+  usage: {'input_tokens': 1695, 'cached_input_tokens': 0, 'output_tokens': 830, 'requests': 2, 'estimated_cost_usd': 0.005015}
+
+=== FINAL ANSWER ===
+## Taiwanese beef noodle soup
+
+Here’s a cozy Taiwanese beef noodle soup for two, adapted to the ingredients you have. A gentle simmer will make the beef tender and the broth deeply savory.
+
+### Ingredients (for 2 servings, at Walmart)
+
+- beef chuck: about 360 g (common item, not checked against the catalog)
+- wheat noodles: about 200 g (common item, not checked against the catalog)
+- beef stock: about 800 g (common item, not checked against the catalog)
+- soy sauce: about 36 g (common item, not checked against the catalog)
+- Huy Fong Chili Garlic Sauce 18 oz: about 20 g (substitute for doubanjiang, from Walmart)
+- vegetable oil: about 10 g (common item, not checked against the catalog)
+- tomato: about 90 g (common item, not checked against the catalog)
+- onion: about 60 g (common item, not checked against the catalog)
+- garlic: about 10 g (common item, not checked against the catalog)
+- ginger: about 16 g (common item, not checked against the catalog)
+- scallion: about 20 g (common item, not checked against the catalog)
+- Great Value Ground Black Pepper 3 oz: about 0.4 g (substitute for Sichuan peppercorn, from Walmart)
+- cinnamon: about 0.6 g (common item, not checked against the catalog)
+- bay leaf: about 0.2 g (common item, not checked against the catalog)
+- sugar: about 6 g (common item, not checked against the catalog)
+- bok choy: about 120 g (common item, not checked against the catalog)
+- ~~star anise~~: left out, no suitable substitute
+- ~~Shaoxing wine~~: left out, no suitable substitute
+- ~~pickled mustard greens~~: left out, no suitable substitute
+
+### Substitutions
+
+| Original | Use instead | Price | Taste / texture | Why |
+|---|---|---|---|---|
+| doubanjiang | Huy Fong Chili Garlic Sauce 18 oz | $4.48 (unverified) | Adds chili heat, garlic, and a similar saucy texture, but lacks doubanjiang’s fermented bean depth. | A practical Walmart sauce stand-in; use a little less if you want to avoid making the broth too garlicky. |
+| star anise | no substitute found (skip it) | | Skipping it leaves out the soup’s distinctive sweet licorice-like aroma. | No suitable spice was found in the store search. |
+| Sichuan peppercorn | Great Value Ground Black Pepper 3 oz | $1.98 (unverified) | Adds peppery warmth, but not Sichuan peppercorn’s citrusy aroma or numbing tingle. | A weaker but available pepper substitute for a small amount in the broth. |
+| Shaoxing wine | no substitute found (skip it) | | Skipping it loses some mellow, wine-like aroma in the broth. | Dry sherry, a common cooking substitute, was not found in the store search. |
+| pickled mustard greens | no substitute found (skip it) | | Skipping them means missing their salty, sour crunch and contrast with the beef. | No suitable pickled vegetable was found in the store search. |
+
+### Nutrition data used (USDA food for each ingredient)
+
+- beef chuck: Beef, chuck for stew, separable lean and fat, choice, raw
+- wheat noodles: Noodles, egg, dry, enriched
+- beef stock: Soup, stock, beef, home-prepared
+- soy sauce: Soy sauce made from soy (tamari)
+- Huy Fong Chili Garlic Sauce 18 oz: Sauce, hot chile, sriracha
+- vegetable oil: Oil, vegetable, soybean, refined
+- tomato: Tomatoes, red, ripe, raw, year round average
+- onion: Onions, raw
+- garlic: Garlic, raw
+- ginger: Ginger root, raw
+- scallion: Onions, spring or scallions (includes tops and bulb), raw
+- Great Value Ground Black Pepper 3 oz: Spices, pepper, black
+- cinnamon: Spices, cinnamon, ground
+- bay leaf: Spices, bay leaf
+- sugar: Sugars, granulated
+- bok choy: Cabbage, chinese (pak-choi), raw
+
+### Steps
+
+1. Cut the beef chuck into bite-size pieces. Chop the tomato, onion, garlic, ginger, and scallion; slice the bok choy.
+2. Heat the vegetable oil in a pot. Add the onion, garlic, and ginger and cook until fragrant. Stir in the chili garlic sauce, then add the beef and brown it lightly.
+3. Add the tomato, beef stock, soy sauce, and cinnamon. Bring to a boil, then cover and simmer gently until the beef is tender, about 1½–2 hours.
+4. Cook the wheat noodles according to their package directions. Add the bok choy to the soup for the last few minutes, until tender.
+5. Divide the noodles between two bowls, ladle over the beef and broth, and garnish with the scallion.
+
+### What will taste different
+
+The chili garlic sauce adds heat and garlic but lacks doubanjiang’s fermented bean depth. Star anise, Shaoxing wine, and pickled mustard greens are omitted, so the broth misses their sweet licorice-like aroma and mellow wine notes, and the bowls lack the greens’ salty-sour crunch. The listed black pepper amount is 0 g, so it won’t add the peppery warmth of the suggested Sichuan peppercorn substitute.
+
+### Allergen check (avoiding: peanuts)
+
+- Check the label: wheat noodles (processed food; allergens depend on the product label)
+- Check the label: beef stock (processed food; allergens depend on the product label)
+- Check the label: soy sauce (processed food; allergens depend on the product label)
+- Check the label: vegetable oil (not in the catalog or keyword list; check the label)
+- Check the label: bay leaf (not in the catalog or keyword list; check the label)
+
+### Nutrition per serving (computed from USDA data)
+
+| | Original | Adapted | Change |
+|---|---|---|---|
+| Calories (kcal) | 785.86 | 792.41 | +6.55 |
+| Protein (g) | 65.52 | 65.39 | -0.13 |
+| Fat (g) | 18.88 | 18.93 | +0.05 |
+| Carbs (g) | 90.83 | 92.32 | +1.49 |
+| Fiber (g) | 6.19 | 6.08 | -0.11 |
+| Sugar (g) | 11.09 | 12.44 | +1.35 |
+| Sodium (mg) | 2009.11 | 2219.14 | +210.03 |
+
+Not matched to USDA data, so NOT counted in the numbers above: doubanjiang, star anise, Sichuan peppercorn, Shaoxing wine
+USDA has no value for some nutrients in the original version (sugar_g), so those totals may be low.
+USDA has no value for some nutrients in the adapted version (sugar_g), so those totals may be low.
+Substitutes are assumed to be used 1:1 by weight.
+
+=== TOKENS PER STAGE ===
+intake        input=   234 cached=     0 output=    42 requests=1 cost=$0.000402
+analyst       input= 15396 cached=  8449 output=  2688 requests=4 cost=$0.019811
+substitution  input=  1638 cached=     0 output=   612 requests=2 cost=$0.004086
+writer        input=  1695 cached=     0 output=   830 requests=2 cost=$0.005015
+TOTAL         input= 18963 cached=  8449 output=  4172 requests=9 cost=$0.029314
+
+
+######## EXAMPLE 2: vague input ########
+
+=== TRACE ===
+
+[intake] input: Student message: something from home
+Settings: store=Walmart; allergies=['peanuts']; dietary preferences=none; goals=none
+  output: {'question': 'What dish would you like to make?'}
+  usage: {'input_tokens': 233, 'cached_input_tokens': 0, 'output_tokens': 29, 'requests': 1, 'estimated_cost_usd': 0.000349}
+
+=== CLARIFYING QUESTION ===
+What dish would you like to make?
+
+=== TOKENS PER STAGE ===
+intake        input=   233 cached=     0 output=    29 requests=1 cost=$0.000349
+TOTAL         input=   233 cached=     0 output=    29 requests=1 cost=$0.000349

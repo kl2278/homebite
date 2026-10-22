@@ -14,7 +14,7 @@ from the USDA FoodData Central **SR Legacy** release (public domain). Columns:
 
 **This is a starter set for demo purposes only.**
 
-- It has 160 realistic-looking items across Walmart, Trader Joe's, Whole Foods, Aldi and
+- It has 163 realistic-looking items across Walmart, Trader Joe's, Whole Foods, Aldi and
   an "Asian grocery" store.
 - **Prices are illustrative and not current.** Real store prices change and vary by location.
 - Product names, availability and allergen tags have **not** been checked against real

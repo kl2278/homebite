@@ -133,6 +133,19 @@ def _catalog() -> list[CatalogItem]:
         ]
 
 
+def get_food(fdc_id: int) -> NutritionItem | None:
+    """Look up one food by fdc_id (used by code, not registered as an agent tool)."""
+    return _nutrition().get(fdc_id)
+
+
+def find_catalog_item(product_name: str, store: str) -> CatalogItem | None:
+    """Exact (case-insensitive) product lookup at one store (used by code, not an agent tool)."""
+    for item in _catalog():
+        if _normalize_store(item.store) == _normalize_store(store) and item.product_name.lower() == product_name.strip().lower():
+            return item
+    return None
+
+
 # ---------------------------------------------------------------- fuzzy matching
 
 def _stem(word: str) -> str:
@@ -176,6 +189,10 @@ def _fix_typos(query_words: list[str], vocabulary: set[str]) -> list[str] | None
     return fixed
 
 
+# Filler words models like to add ("beef shank raw"); dropped only if the full query finds nothing.
+FILLER_WORDS = {"raw", "uncooked", "fresh", "spice", "whole"}
+
+
 def _match_all_words(query: str, texts: list[str]) -> list[int]:
     """Indexes of texts that contain every query word (after typo correction), best first."""
     word_sets = [set(_words(t)) for t in texts]
@@ -184,13 +201,20 @@ def _match_all_words(query: str, texts: list[str]) -> list[int]:
     if not query_words:
         return []
     hits = [i for i, words in enumerate(word_sets) if all(w in words for w in query_words)]
+    if not hits:
+        trimmed = [w for w in query_words if w not in FILLER_WORDS]
+        if trimmed and trimmed != query_words:
+            hits = [i for i, words in enumerate(word_sets) if all(w in words for w in trimmed)]
+            query_words = trimmed
 
     def rank(i: int):
         words = _words(texts[i])
         head = _words(texts[i].split(",")[0])
+        phrase_in_head = any(head[k:k + len(query_words)] == query_words for k in range(len(head)))
         return (
-            bool(words) and words[0] not in query_words,  # starts with a query word
             "raw" not in words,  # raw foods are the best base for recipes
+            not phrase_in_head,  # "soy sauce" beats "Sauce, peanut, made with soy sauce"
+            bool(words) and words[0] not in query_words,  # starts with a query word
             len(head) - len(query_words),  # fewer extra words before the first comma ("Tofu yogurt")
             len(texts[i]),
         )
@@ -297,10 +321,11 @@ def compute_recipe_nutrition(ingredients: list[IngredientAmount], servings: int)
 # Keywords that reveal an allergen in an ingredient name.
 ALLERGEN_KEYWORDS = {
     "peanuts": ["peanut", "groundnut"],
-    "tree_nuts": ["almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut", "macadamia", "pine nut", "coconut", "nut"],
+    "tree_nuts": ["almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut", "macadamia", "pine nut",
+                  "brazil nut", "chestnut", "coconut", "tree nut", "nut", "nut butter"],
     "shellfish": ["shrimp", "prawn", "crab", "lobster", "oyster", "clam", "mussel", "scallop", "squid", "crustacean", "mollusk"],
-    "fish": ["fish", "salmon", "tuna", "cod", "tilapia", "sardine", "anchov", "mackerel", "trout", "catfish"],
-    "soy": ["soy", "tofu", "tempeh", "miso", "edamame", "natto", "tamari", "shoyu"],
+    "fish": ["fish", "salmon", "tuna", "cod", "tilapia", "sardine", "anchovy", "anchovies", "mackerel", "trout", "catfish"],
+    "soy": ["soy", "soya", "soybean", "tofu", "tempeh", "miso", "edamame", "natto", "tamari", "shoyu"],
     "wheat_gluten": ["wheat", "flour", "bread", "pasta", "spaghetti", "noodle", "couscous", "bulgur", "semolina",
                      "seitan", "tortilla", "pita", "naan", "soy sauce", "barley", "rye", "cracker"],
     "eggs": ["egg", "mayonnaise", "mayo", "meringue"],
@@ -322,7 +347,8 @@ KNOWN_FREE_FOODS = [
 
 
 def _word_in(text: str, phrase: str) -> bool:
-    return re.search(rf"\b{re.escape(phrase)}", text) is not None
+    """True if phrase appears as a whole word (or its plural): "nut" matches "nuts" but not "nutmeg"."""
+    return re.search(rf"\b{re.escape(phrase)}(?:s|es)?\b", text) is not None
 
 
 def check_allergens(ingredients: list[str | CatalogItem], allergens: list[str]) -> AllergenCheck:

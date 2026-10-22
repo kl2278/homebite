@@ -43,16 +43,27 @@ SKIP_PATTERN = re.compile(
     r", with salt|added solution|industrial|dry mix|Alcoholic|separable lean only|"
     r"separable fat|^Game meat|^Beverages|^Candies|^Pie fillings|^Puddings|"
     r"^Frozen novelty|frozen, unprepared|NFS|low calorie|fortified with|^Babyfood|"
-    r"^Snacks|^Crackers|cookies?|Archway|Pillsbury|Kraft|Oscar Mayer|Nabisco|Mission Foods|Pepperidge|Hormel|Reddi|Martha White|Interstate|George Weston|Mckee|Continental Mills|Glutino|Schar|Udi|Van.s|Rudi|Andrea|Mary.s Gone|^Arrowhead|^Cake|^Pastry|^Waffle|^Pancakes|^Muffins|^Pie crust|"
+    r"^Snacks|^Crackers|cookies?|^Cake|^Pastry|^Waffle|^Pancakes|^Muffins|^Pie crust|"
     r"^Pies|syrup pack|juice pack|water pack|microwaved|with added ascorbic|"
     r"^Infant formula|^Sausage|^Frankfurter|^Bologna|^Salami|^Luncheon",
     re.IGNORECASE,
 )
 
+# Brand names that are not written in capitals. Whole words only ("Glutino" is a brand, "glutinous" is rice).
+BRAND_NAMES = re.compile(r"\b(" + r"Archway|Pillsbury|Kraft|Oscar Mayer|Nabisco|Mission Foods|Pepperidge|Hormel|Reddi|Martha White|Interstate|George Weston|Mckee|Continental Mills|Glutino|Schar|Udi|Van.s|Rudi|Andrea|Mary.s Gone|Arrowhead" + r")\b")
 # Brand names are written in capitals (SILK, HORMEL, KRAFT); generic foods never are.
 BRAND_PATTERN = re.compile(r"\b[A-Z]{3,}\b")
 # USDA adds this note to some generic foods; drop the note, keep the food.
 CLEAN_PATTERN = re.compile(r"\s*\(Includes foods for USDA's Food Distribution Program\)")
+
+# Foods kept even when the filters above would drop them (fdc_ids from SR Legacy).
+# Each is a common recipe base that only exists under a filtered-out description.
+MUST_INCLUDE = {
+    "168883",  # Rice, white, glutinous, unenriched, uncooked
+    "169711",  # Rice, white, glutinous, unenriched, cooked
+    "168664",  # Beef, brisket, whole, separable lean and fat, trimmed to 1/8" fat, all grades, raw
+    "169491",  # Beef, chuck, arm pot roast, separable lean and fat, trimmed to 1/8" fat, all grades, raw
+}
 
 # Staples from East Asian, South Asian, Latin American, Middle Eastern and European
 # cooking. Rows whose description matches are always kept, ahead of everything else.
@@ -105,10 +116,14 @@ def main() -> None:
 
     candidates = []
     for food in read_csv(z, "food.csv"):
-        if food["food_category_id"] in SKIP_CATEGORIES:
+        if food["food_category_id"] in SKIP_CATEGORIES and food["fdc_id"] not in MUST_INCLUDE:
             continue
         food["description"] = CLEAN_PATTERN.sub("", food["description"]).strip()
-        if SKIP_PATTERN.search(food["description"]) or BRAND_PATTERN.search(food["description"]):
+        description = food["description"]
+        filtered_out = (
+            SKIP_PATTERN.search(description) or BRAND_PATTERN.search(description) or BRAND_NAMES.search(description)
+        )
+        if filtered_out and food["fdc_id"] not in MUST_INCLUDE:
             continue
         have = amounts.get(food["fdc_id"], {})
         values = {}
@@ -119,10 +134,11 @@ def main() -> None:
         candidates.append({"fdc_id": food["fdc_id"], "description": food["description"], **values})
 
     # Staples first, then the rest, simplest descriptions (fewest commas) first, up to MAX_ROWS.
-    staples = [r for r in candidates if STAPLES.search(r["description"])]
-    others = [r for r in candidates if not STAPLES.search(r["description"])]
+    must = [r for r in candidates if r["fdc_id"] in MUST_INCLUDE]
+    staples = [r for r in candidates if STAPLES.search(r["description"]) and r not in must]
+    others = [r for r in candidates if not STAPLES.search(r["description"]) and r not in must]
     others.sort(key=lambda r: (r["description"].count(","), len(r["description"])))
-    rows = (staples + others)[:MAX_ROWS]
+    rows = (must + staples + others)[:MAX_ROWS]
     rows.sort(key=lambda r: r["description"])
 
     OUT_PATH.parent.mkdir(exist_ok=True)
