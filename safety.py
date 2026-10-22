@@ -123,7 +123,7 @@ KEY_LIKE = re.compile(r"sk-[A-Za-z0-9_\-]{8,}|\b(?=[A-Za-z0-9_\-]*\d)(?=[A-Za-z0
 def log_safety_event(category: str, caught_by: str, text: str, path: Path | None = None) -> None:
     """Append one blocked request to logs/safety_events.jsonl (first 100 characters only, key-like text removed)."""
     path = path or SAFETY_LOG_PATH
-    path.parent.mkdir(exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "category": category,

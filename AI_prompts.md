@@ -329,3 +329,45 @@ Now UI polish, plus one allergen false-positive check. Build only what's listed 
 
 Show me: the before/after results for the noodle types, the test results, a description of each screen, the live-run result and tokens, and git status. Then stop.
 ````
+
+## Prompt 9: README and fresh-clone check
+
+````
+Now the README and the fresh-clone dry run. Build only what's listed here. Do not change the pipeline, prompts, safety limits, cost settings or the look of the app. UI FREEZE: I have already taken my report screenshots, so do not change any visible text, layout, colors or widgets, except for the single new "missing .env" message in item 2c, which only appears when the key is missing. Any other change you think is needed, tell me instead of making it.
+
+1. README.md: write it for a teaching-staff member who has never seen the project and has 10 minutes. Sections, in this order:
+   - Title "HomeBite", a one-line pitch, and 3-4 sentences on what it does and who it is for (international students adapting dishes from home to what they can buy at their local store, with nutrition computed in code from bundled USDA data, never invented by the model).
+   - "Run it (about 5 minutes)": numbered, copy-pasteable steps for macOS/Linux and for Windows (clone, create and activate a virtual environment, pip install -r requirements.txt, where .env goes, streamlit run app.py, the local URL). State the Python version you tested with. Say that the app runs locally and is not hosted online.
+   - ".env": the app looks for .env first in the repo folder, then one folder above it. The only keys are PORTKEY_API_KEY (used) and OPENAI_API_KEY (listed but not used). Show the folder layout. Model: gpt-6-luna through Portkey.
+   - "Try it in 60 seconds": the three example buttons, a suggested allergy test (for example Kung pao chicken with peanuts selected), and the "Developer tools > Use saved example" toggle, which shows a saved run without any LLM call.
+   - "What's inside": a short file map (app.py, agents.py, tools.py, safety.py, usage.py, data/, scripts/, tests/, logs/ evidence files) and the five stages in one sentence each.
+   - "Tests and evidence": how to run pytest (python -m pytest -q, no tokens spent), scripts/safety_demo.py (what it costs), scripts/measure_tokens.py (20 live runs, about 4 cents; --dry-run and --summarize-only options), scripts/allergen_fix_check.py, and where the committed evidence files are (logs/safety_demo_output.txt, logs/token_report.csv, logs/token_summary.md, logs/cost_experiment.md, logs/allergen_fix_check.md).
+   - "Data": nutrition.csv comes from USDA FoodData Central SR Legacy (public domain). grocery_catalog.csv is a STARTER set with illustrative prices and product names, all verified=false unless I change it; it is not live store data. Say that the full datasets are small enough to ship, so there is no test-dataset switch.
+   - "Known limits": about 163 catalog items so the app often answers "no substitute"; some ingredients have no USDA entry and are excluded from totals (the app says which); allergen checks use catalog tags and a keyword list and are not a guarantee; this is not medical advice; a run takes about 30 seconds; prices are estimates from the course pricing slide.
+   - "Safety in one paragraph": input rules, classifier, spend caps, hallucination guard, allergen hard stop.
+   Keep it factual and short. No secrets, no absolute paths from my computer, no unverified claims.
+
+2. Startup fixes (only these):
+   a. Add .streamlit/config.toml with browser.gatherUsageStats = false, so a first-time Streamlit user is not blocked by the "Enter your email" prompt. Do NOT set headless and do NOT set any theme or color; the browser should still open and the look must not change.
+   b. Make sure every folder the app writes to (logs/, logs/measurement/, anything else) is created automatically when missing, because a fresh clone will not have the ignored log files.
+   c. If no .env or no PORTKEY_API_KEY is found, the app must show a short friendly message telling the user where to put .env (repo folder or one level up), not a traceback. Add a test.
+
+3. Fresh-clone dry run, as the teaching staff would do it:
+   - Create a new temp folder outside this project, simulate the submissions layout (a parent folder containing only a .env copy and the clone), and `git clone` this repo (the local path is fine) into it. Use the .env one level above the clone; never print its contents.
+   - Use a throwaway HOME (for example HOME=<temp>/home) so no existing Streamlit settings or credentials hide a first-run problem.
+   - Follow the README literally, step by step: create the venv, pip install -r requirements.txt, then start the app headless on a different port from 8501 and confirm HTTP 200. Time the whole path (venv, install, first start) and report it in minutes.
+   - In the clone, run python -m pytest -q and python test_llm.py once (tiny call).
+   - Run ONE genuinely fresh live pipeline run through the app's code path with a dish not used before ("Vietnamese chicken pho", Aldi, allergy fish), to confirm the key lookup from the parent folder works end to end. Report latency and tokens; if it comes back in a few seconds with tokens identical to an earlier run, say so.
+   - Then rename or remove the .env and confirm the app shows the friendly message (item 2c). Restore it afterwards.
+   - Report any step in the README that failed or was unclear, and fix the README (or the code, only within item 2).
+
+4. Repo hygiene checks (report results, fix only trivial problems):
+   - git ls-files: confirm .env, .venv, __pycache__ and ignored log files are not tracked, and that data/nutrition.csv, data/grocery_catalog.csv, data/measurement_dishes.json, tests/fixtures/example_result.json and the committed logs/ evidence files ARE tracked.
+   - Search the tracked files and the full git history for anything that looks like a key or token, for ".env" ever having been committed, and for absolute paths like /Users/ in tracked files (report where; do NOT rewrite AI_prompts.md, which must stay verbatim).
+   - Confirm AI_prompts.md has an entry for every prompt (0 to 9 once logged) and the follow-ups, and that each entry ends properly.
+   - Confirm gpt-6-luna is the only model name anywhere in the repo outside .venv, and requirements.txt installs cleanly in the fresh venv (pip check).
+
+5. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Prompt 9: README and fresh-clone check". Don't push.
+
+Show me: the full README, the fresh-clone timing and each step's result, the pho run result, the friendly-message check, the hygiene findings (especially anything in git history), the test results, and git status. Then stop.
+````

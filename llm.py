@@ -26,6 +26,12 @@ def load_env() -> None:
                 os.environ[key] = value
 
 
+def api_key_is_set() -> bool:
+    """True if PORTKEY_API_KEY is available (only checks that it is set; never reads or prints the value)."""
+    load_env()
+    return bool(os.environ.get(PORTKEY_API_KEY_ENV))
+
+
 def build_model():
     """Create the Portkey-routed model used by every agent."""
     from openai import AsyncOpenAI

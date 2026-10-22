@@ -64,7 +64,7 @@ def record_run(agent_name: str, usage) -> dict:
     session_total["requests"] += entry["requests"]
     session_total["estimated_cost_usd"] += entry["estimated_cost_usd"]
 
-    LOG_PATH.parent.mkdir(exist_ok=True)
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_PATH.open("a") as f:
         f.write(json.dumps(entry) + "\n")
     return entry

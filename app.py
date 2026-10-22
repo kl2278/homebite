@@ -16,6 +16,7 @@ import streamlit as st
 
 import usage
 from agents import COMMON_LABEL, NUTRIENT_LABELS, PipelineResult, RunDeps, load_example, run_pipeline
+from llm import api_key_is_set
 from safety import SessionLimits
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "tests" / "fixtures" / "example_result.json"
@@ -50,9 +51,15 @@ ss.setdefault("dish_text", "")
 
 # ================================================================ running the pipeline
 
+MISSING_KEY_MESSAGE = (
+    "HomeBite can't reach the AI service because PORTKEY_API_KEY was not found. Put a .env file containing "
+    "PORTKEY_API_KEY=... in the repo folder (or in the folder one level above it), then reload this page."
+)
+
+
 def friendly_error(error: Exception) -> str:
     if "PORTKEY_API_KEY" in str(error):
-        return "The AI service key is not set. Add PORTKEY_API_KEY to your .env file and try again."
+        return MISSING_KEY_MESSAGE
     return "Something went wrong while contacting the AI service. Please try again in a moment."
 
 
@@ -68,6 +75,8 @@ def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None
         status.write(label)
 
     try:
+        if not api_key_is_set():
+            raise RuntimeError("PORTKEY_API_KEY is not set")
         # Settings travel in RunDeps (trusted); the student's text is passed on its own.
         deps = RunDeps(store=inputs["store"], servings=inputs["servings"], allergies=inputs["allergies"],
                        dietary_preferences=diet, goals=goals)
@@ -114,6 +123,8 @@ st.write(
 
 if use_fixture:
     st.warning("Showing a saved example, no live AI call was made.")
+elif not api_key_is_set():
+    st.warning(MISSING_KEY_MESSAGE)  # appears only when the key is missing
 
 
 def pick_example(text: str) -> None:
