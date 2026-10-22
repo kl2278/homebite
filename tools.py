@@ -356,7 +356,7 @@ EXTRA_ALLERGEN_KEYWORDS = {
     "wheat_gluten": ["panko", "breadcrumb", "bread crumb", "roux", "curry roux", "baguette", "ciabatta", "bagel", "brioche",
                      "croissant", "pretzel", "linguine", "fettuccine", "penne", "macaroni", "rigatoni", "fusilli", "farfalle",
                      "orzo", "lasagna", "lasagne", "ravioli", "gnocchi", "udon", "ramen", "durum", "farro", "spelt", "tempura",
-                     "katsu", "schnitzel", "breaded", "battered", "crouton"],
+                     "katsu", "schnitzel", "breaded", "battered", "crouton", "soba"],
     "shellfish": ["seafood", "seafood mix", "shellfish", "crayfish", "crawfish", "langoustine", "cockle", "abalone", "krill",
                   "octopus", "cuttlefish"],
     "dairy": ["crema", "queso", "mozzarella", "cheddar", "parmesan", "parmigiano", "pecorino", "feta", "ricotta", "mascarpone",
@@ -371,6 +371,10 @@ EXTRA_ALLERGEN_KEYWORDS = {
 }
 for _allergen, _extra in EXTRA_ALLERGEN_KEYWORDS.items():
     ALLERGEN_KEYWORDS[_allergen] = ALLERGEN_KEYWORDS[_allergen] + [w for w in _extra if w not in ALLERGEN_KEYWORDS[_allergen]]
+
+# Noodles that are usually made without wheat. A name like "rice noodles" is only "uncertain" for gluten (check the label);
+# plain "noodles", "egg noodles", "ramen", "udon" and "soba" stay definite conflicts.
+USUALLY_GLUTEN_FREE_NOODLES = re.compile(r"\b(rice|glass|cellophane|mung[- ]bean|sweet[- ]potato|bean[- ]thread)[- ]+(noodles?|vermicelli)\b")
 
 # An explicit free-from label ("gluten-free panko") is not a definite conflict: the label should still be checked.
 FREE_FROM_LABELS = {
@@ -438,11 +442,19 @@ def check_allergens(ingredients: list[str | CatalogItem], allergens: list[str]) 
         hits = [a for a in wanted if any(_word_in(text, k) for k in ALLERGEN_KEYWORDS[a])]
         labelled_free = [a for a in hits if re.search(FREE_FROM_LABELS[a], text)]
         hits = [a for a in hits if a not in labelled_free]
+        soft_noodles = False
+        if "wheat_gluten" in wanted and "wheat_gluten" not in labelled_free and USUALLY_GLUTEN_FREE_NOODLES.search(text):
+            only_noodle = [k for k in ALLERGEN_KEYWORDS["wheat_gluten"] if _word_in(text, k)] in ([], ["noodle"])
+            if only_noodle:  # no other wheat word in the name, so this is "check the label", not a definite conflict
+                soft_noodles = True
+                hits = [a for a in hits if a != "wheat_gluten"]
         conflicts += [AllergenConflict(ingredient=name, allergen=a, reason="name contains an allergen keyword") for a in hits]
         if labelled_free:
             names = ", ".join(a.replace("_", " ") for a in labelled_free)
             uncertain.append(UncertainIngredient(ingredient=name, reason=f"labelled free of {names}, but check the label"))
-        if hits or labelled_free:
+        if soft_noodles:
+            uncertain.append(UncertainIngredient(ingredient=name, reason="usually gluten-free noodles, but check the label"))
+        if hits or labelled_free or soft_noodles:
             continue
         if any(_word_in(text, w) for w in AMBIGUOUS_WORDS):
             uncertain.append(UncertainIngredient(ingredient=name, reason="processed food; allergens depend on the product label"))

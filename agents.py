@@ -4,6 +4,7 @@ Agents are PydanticAI Agents with Pydantic output types. Tools are thin wrappers
 tools.py. Every nutrition number and allergen result comes from code, never from a model.
 """
 
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -633,6 +634,20 @@ def save_result(result: PipelineResult, path: str | Path) -> None:
 
 def load_result(path: str | Path) -> PipelineResult:
     return PipelineResult.model_validate_json(Path(path).read_text(encoding="utf-8"))
+
+
+def save_example(result: PipelineResult, settings: dict, run_seconds: float | None, path: str | Path) -> None:
+    """Save the UI's saved example: the result plus the settings it was made with."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"settings": settings, "run_seconds": run_seconds, "result": json.loads(result.model_dump_json())}
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def load_example(path: str | Path) -> tuple[PipelineResult, dict, float | None]:
+    """Return (result, settings, run_seconds) from a file written by save_example."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return PipelineResult.model_validate(data["result"]), data["settings"], data.get("run_seconds")
 
 
 USAGE_KEYS = ("input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens", "requests", "estimated_cost_usd")

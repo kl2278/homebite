@@ -5,20 +5,21 @@ The page only renders a PipelineResult. All AI calls happen inside run_pipeline.
 
 import logging
 import os
+import time
 from pathlib import Path
 
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
 import usage
-from agents import COMMON_LABEL, NUTRIENT_LABELS, PipelineResult, RunDeps, load_result, run_pipeline
+from agents import COMMON_LABEL, NUTRIENT_LABELS, PipelineResult, RunDeps, load_example, run_pipeline
 from safety import SessionLimits
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "tests" / "fixtures" / "example_result.json"
-# The settings the saved example was made with.
-FIXTURE_INPUTS = {"store": "Walmart", "allergies": ["peanuts"], "servings": 2}
+# The saved example file holds the result AND the settings it was made with.
 
 STORES = ["Walmart", "Trader Joe's", "Whole Foods", "Aldi", "Asian grocery"]
 ALLERGY_OPTIONS = {
@@ -41,6 +42,7 @@ ss.setdefault("result", None)  # the PipelineResult of the last live run
 ss.setdefault("inputs", None)  # the settings that result was made with
 ss.setdefault("clarify", None)  # {"text": ..., "question": ...} while waiting for an answer
 ss.setdefault("error", None)
+ss.setdefault("elapsed", None)  # seconds the last live run took
 ss.setdefault("limits", SessionLimits())  # rate limit and token counters for this browser session
 ss.setdefault("session_usage", {k: 0 for k in USAGE_KEYS})
 ss.setdefault("dish_text", "")
@@ -58,6 +60,8 @@ def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None
     """Run the pipeline once (paid LLM calls) and keep everything in session_state."""
     ss.error, ss.clarify = None, None
     status = st.status("Starting...", expanded=True)
+    status.caption("A full run usually takes about 30 seconds.")
+    started = time.time()
 
     def on_progress(label: str) -> None:
         status.update(label=f"{label}...")
@@ -75,7 +79,7 @@ def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None
         st.rerun()
         return
 
-    ss.result, ss.inputs = result, inputs
+    ss.result, ss.inputs, ss.elapsed = result, inputs, round(time.time() - started, 1)
     for key in USAGE_KEYS:
         ss.session_usage[key] += result.usage_total.get(key, 0)
     if result.status == "needs_clarification":
@@ -185,13 +189,16 @@ def render_substitutions(result: PipelineResult, inputs: dict) -> None:
             "Taste / texture": s.taste_texture_note,
             "Status": s.status,
         })
-    for line in verified.adapted_ingredients:
-        if line.label == COMMON_LABEL:
-            rows.append({"Original": line.name, "Use instead": line.name, "Store": "", "Price": "",
-                         "Taste / texture": "", "Status": COMMON_LABEL})
     st.subheader("Substitutions")
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.caption("Prices are starter catalog prices, not live.")
+    if rows:
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.caption("Prices are starter catalog prices, not live.")
+    else:
+        st.caption("Nothing needed a substitute.")
+    common = [line.name for line in verified.adapted_ingredients if line.label == COMMON_LABEL]
+    with st.expander(f"Common items kept as-is ({len(common)})"):
+        st.caption("Common items, not checked against the catalog.")
+        st.markdown("\n".join(f"- {name}" for name in common) or "None")
 
 
 def render_allergens(result: PipelineResult, inputs: dict) -> None:
@@ -227,11 +234,19 @@ def render_nutrition(result: PipelineResult) -> None:
     adapted_col.metric("Sodium", f"{sodium['adapted']:g} mg", delta=f"{sodium['change']:+g} mg", delta_color="inverse")
 
     grams = ["protein_g", "fat_g", "carbs_g", "fiber_g", "sugar_g"]
-    chart = pd.DataFrame(
-        {"Original": [comparison[k]["original"] for k in grams], "Adapted": [comparison[k]["adapted"] for k in grams]},
-        index=[NUTRIENT_LABELS[k] for k in grams],
+    labels = [NUTRIENT_LABELS[k].replace(" (g)", "") for k in grams]
+    chart_data = pd.DataFrame(
+        [{"Nutrient": label, "Version": version.capitalize(), "Grams": comparison[k][version]}
+         for k, label in zip(grams, labels) for version in ("original", "adapted")]
     )
-    st.bar_chart(chart)
+    bars = alt.Chart(chart_data).encode(
+        x=alt.X("Nutrient:N", sort=labels, title=None, axis=alt.Axis(labelAngle=0)),
+        xOffset="Version:N",
+        y=alt.Y("Grams:Q", title="Grams"),
+        color=alt.Color("Version:N", scale=alt.Scale(domain=["Original", "Adapted"])),
+    )
+    chart = bars.mark_bar() + bars.mark_text(dy=-6, fontSize=11).encode(text=alt.Text("Grams:Q", format=".1f"))
+    st.altair_chart(chart.properties(title="Per serving, original vs adapted", height=300), width="stretch")
 
     missing = verified.unmatched_ingredients
     if missing:
@@ -286,7 +301,32 @@ def render_usage(result: PipelineResult, saved_example: bool) -> None:
         st.caption("Estimated cost uses gpt-6-luna prices from the course pricing slide.")
 
 
-def render_result(result: PipelineResult, inputs: dict, saved_example: bool) -> None:
+def allergen_status(result: PipelineResult, inputs: dict) -> str:
+    check = result.verified.allergen_check
+    if not inputs["allergies"]:
+        return "No allergies selected"
+    if result.allergen_hard_stop or check.conflicts:
+        return "Conflict"
+    return "Clear" if check.all_clear else "Uncertain"
+
+
+def render_summary(result: PipelineResult, inputs: dict, run_seconds: float | None) -> None:
+    subs = result.verified.substitutions
+    items = [
+        ("Substitutes found", str(sum(1 for s in subs if s.status == "substituted"))),
+        ("Items left out", str(sum(1 for s in subs if s.status == "no_substitute"))),
+        ("Allergen status", allergen_status(result, inputs)),
+    ]
+    if run_seconds is not None:
+        items.append(("Run time", f"{run_seconds:.0f} s"))
+    cost = result.usage_total.get("estimated_cost_usd")
+    if cost is not None:
+        items.append(("Est. cost", f"${cost:.4f}"))
+    for column, (label, value) in zip(st.columns(len(items)), items):
+        column.metric(label, value)
+
+
+def render_result(result: PipelineResult, inputs: dict, saved_example: bool, run_seconds: float | None = None) -> None:
     request, writer = result.request, result.writer
     st.divider()
     if result.allergen_hard_stop:
@@ -302,6 +342,7 @@ def render_result(result: PipelineResult, inputs: dict, saved_example: bool) -> 
     if result.writer_path == "fallback":
         st.info("This is a simplified version: the full recipe text didn't pass our safety checks, "
                 "so only the verified ingredients and substitutions are shown.")
+    render_summary(result, inputs, run_seconds)
     st.write(writer.intro)
 
     left, right = st.columns([1, 1])
@@ -321,7 +362,10 @@ def render_result(result: PipelineResult, inputs: dict, saved_example: bool) -> 
     render_usage(result, saved_example)
 
 
-shown, shown_inputs = (load_result(FIXTURE_PATH), FIXTURE_INPUTS) if use_fixture else (ss.result, ss.inputs)
+if use_fixture:
+    shown, shown_inputs, shown_seconds = load_example(FIXTURE_PATH)
+else:
+    shown, shown_inputs, shown_seconds = ss.result, ss.inputs, ss.elapsed
 if shown is not None and shown.medical_context:
     st.info("HomeBite doesn't give medical advice; check with a registered dietitian.")
 if shown is not None and shown.status == "blocked":
@@ -333,7 +377,7 @@ if shown is not None and shown.status in ("blocked", "stopped"):
     render_trace(shown)
     render_usage(shown, saved_example=use_fixture)
 elif shown is not None and shown.status == "complete":
-    render_result(shown, shown_inputs, saved_example=use_fixture)
+    render_result(shown, shown_inputs, saved_example=use_fixture, run_seconds=shown_seconds)
 
 st.divider()
 st.caption(

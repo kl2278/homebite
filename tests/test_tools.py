@@ -255,3 +255,31 @@ def test_everyday_ingredients_are_unaffected():
     result = check_allergens(["rice", "tomato", "olive oil", "onion", "garlic", "salt"], list(tools.ALLERGENS))
     assert result.conflicts == [] and result.uncertain == [] and result.all_clear
     assert check_allergens(["soy sauce"], ["wheat_gluten"]).conflicts  # unchanged: was already a definite conflict
+
+
+# ---- gluten check for noodle types
+
+@pytest.mark.parametrize("name", ["rice noodles", "rice vermicelli", "glass noodles", "cellophane noodles",
+                                  "mung bean noodles", "sweet potato noodles", "Rice Noodle"])
+def test_usually_gluten_free_noodles_are_uncertain_not_a_conflict(name):
+    result = check_allergens([name], ["wheat_gluten"])
+    assert result.conflicts == [] and [u.ingredient for u in result.uncertain] == [name]
+    assert "check the label" in result.uncertain[0].reason and result.all_clear is False
+
+
+@pytest.mark.parametrize("name", ["noodles", "egg noodles", "ramen", "ramen noodles", "udon", "soba", "soba noodles", "soy sauce"])
+def test_wheat_noodles_and_soy_sauce_stay_definite_gluten_conflicts(name):
+    assert [c.allergen for c in check_allergens([name], ["wheat_gluten"]).conflicts] == ["wheat_gluten"]
+
+
+def test_tamari_is_uncertain_for_gluten_but_still_a_soy_conflict():
+    gluten = check_allergens(["tamari"], ["wheat_gluten"])
+    assert gluten.conflicts == [] and [u.ingredient for u in gluten.uncertain] == ["tamari"]
+    assert check_allergens(["tamari"], ["soy"]).conflicts
+
+
+def test_rice_noodle_exception_does_not_hide_other_wheat_words_or_other_allergens():
+    assert check_allergens(["rice noodles with soy sauce"], ["wheat_gluten"]).conflicts
+    assert check_allergens(["rice noodles with wheat flour"], ["wheat_gluten"]).conflicts
+    assert check_allergens(["egg rice noodles"], ["eggs"]).conflicts  # other allergens are untouched
+    assert check_allergens(["shrimp rice noodles"], ["shellfish"]).conflicts

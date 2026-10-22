@@ -64,14 +64,17 @@ def test_allergen_check_runs_on_adapted_list():
 
 
 def test_saved_example_loads_and_round_trips():
-    from agents import load_result, save_result
+    from agents import load_example, load_result, save_example, save_result
 
     fixture = Path(__file__).resolve().parent / "fixtures" / "example_result.json"
-    result = load_result(fixture)
+    result, settings, seconds = load_example(fixture)
     assert result.status == "complete" and result.verified and result.writer
+    assert settings["store"] == "Walmart"  # the settings are stored in the file
     out = Path(__file__).resolve().parent / "fixtures" / "_roundtrip.json"
     try:
         save_result(result, out)
         assert load_result(out) == result
+        save_example(result, settings, seconds, out)
+        assert load_example(out) == (result, settings, seconds)
     finally:
         out.unlink(missing_ok=True)

@@ -304,3 +304,28 @@ Follow-up on Prompt 6 results: the measurement exposed a gap in the allergen che
 
 Show me: the keyword additions, the test results, the offline before/after table, the live d02 result (including the tokens and cost), the contents of allergen_fix_check.md, and git status. Then stop.
 ````
+
+## Prompt 8: UI polish and gluten-free noodle check
+
+````
+Now UI polish, plus one allergen false-positive check. Build only what's listed here. Do not change the pipeline, prompts, safety limits or cost settings.
+
+1. Allergen false-positive check (tools.py only). "noodle" and "soy sauce" are definite gluten conflicts. First print how the current code treats these for a gluten allergy: rice noodles, rice vermicelli, glass noodles, cellophane noodles, mung bean noodles, sweet potato noodles, soba, tamari, egg noodles, ramen, udon. Then make the smallest change so that rice, glass, cellophane, mung bean and sweet potato noodles (and rice vermicelli) are "uncertain" for gluten (check the label) instead of a definite conflict, and tamari is "uncertain". Keep "noodles", "egg noodles", "ramen", "udon" and "soba" as definite conflicts, and keep soy sauce a definite conflict. Add tests for each case. Don't touch other allergens.
+
+2. Regenerate the saved example. The fixture predates the safety checks. Make ONE live run of the beef noodle soup (Walmart, peanuts, 2 servings) through the app's code path and save it to tests/fixtures/example_result.json. Store the settings used inside the fixture file, and make the app's saved-example mode read the settings from there instead of hard-coding them. Update tests accordingly.
+
+3. Results page polish (render from the PipelineResult only; no model calls):
+   a. A compact summary strip under the dish heading with st.metric items: substitutes found, items left out (no substitute), and allergen status (Conflict / Uncertain / Clear / No allergies selected), plus run time and cost when available.
+   b. Substitutions table: show only rows with status substituted or no_substitute. Move "common item, not checked against the catalog" ingredients into a collapsed expander named "Common items kept as-is (N)". Keep the price caption ("starter catalog price, not live").
+   c. Nutrition: show original vs adapted side by side for protein, fat, carbs, fiber and sugar (grams) with value labels on the bars, using altair (it ships with Streamlit, so no new dependency) or the simplest built-in option. Keep the calorie and sodium st.metric deltas and the "Totals exclude: ..." caption. Use a generic chart title like "Per serving, original vs adapted"; no dish-specific claims.
+   d. While a run is in progress, show the caption "A full run usually takes about 30 seconds." (my measured average latency was 33 s).
+   e. Keep everything else: the allergen boxes, the trace expander, the usage panel and the footer.
+
+4. Tests: update tests/test_app.py for the new layout (summary strip values, collapsed common items, both chart series present). All existing tests must pass.
+
+5. Run the app headless and check saved-example mode and the vague-input path. Then ONE live run of "Indian chicken tikka masala with basmati rice" (Trader Joe's, allergy dairy) through the app's code path to confirm the end-to-end flow and the conflict path still work. Describe what each screen shows (I'll take the screenshots myself in the browser).
+
+6. Follow the prompt-log rule from CLAUDE.md, confirm gpt-6-luna is still the only model name and .env is not staged, and commit "Prompt 8: UI polish and gluten-free noodle check". Don't push.
+
+Show me: the before/after results for the noodle types, the test results, a description of each screen, the live-run result and tokens, and git status. Then stop.
+````
