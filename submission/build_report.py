@@ -138,7 +138,7 @@ def quality(rows: list[dict]) -> dict:
 
 
 QB, QS = quality(base), quality(saver)
-git_remote = run(["git", "remote", "get-url", "origin"])
+git_remote = run(["git", "remote", "get-url", "origin"]).removesuffix(".git")
 pytest_out = run([sys.executable, "-m", "pytest", "-q"])
 m_tests = re.search(r"(\d+) passed", pytest_out)
 F["tests"] = m_tests.group(1) if m_tests else "not measured"
@@ -159,53 +159,74 @@ DISAGREE = [(n, got, want) for n, got, want in CHECKS if got != want]
 
 # ================================================================ images
 
-CROPS = {  # crop boxes remove browser chrome, bookmarks, the menu bar, the Dock and side panels
-    "landing_page.png": (0, 86, 1917, 963),
-    "blocked_injection.png": (300, 372, 1920, 945),
-    "override_attempt_blocked.png": (300, 372, 1920, 945),
-    "medical_advice_decline.png": (300, 372, 1920, 945),
-    "extreme_restriction_decline.png": (300, 372, 1920, 965),
-    "terminal_showing_safety_demo_at_1919.png": (222, 100, 1655, 905),
-    "safety_checks.png": (0, 0, 1600, 410),
-    "homebite_test_2.png": (240, 0, None, None), "homebite_test_3.png": (240, 0, None, None),
-    "homebite_after_diet_2.png": (240, 0, None, None), "homebite_after_diet_3.png": (240, 0, None, None),
-}
+CROPS = {"landing_page.png": (0, 86, 1917, 963)}  # whole-image crops that remove browser chrome (tabs, bookmarks)
 IMG_INFO: dict[str, tuple[int, int, int]] = {}
 FIGS: list[str] = []
 
 
-def img_uri(name: str) -> str:
-    im = Image.open(SHOTS / name).convert("RGB")
-    if name in CROPS:
-        left, top, right, bottom = CROPS[name]
-        im = im.crop((left, top, right or im.width, bottom or im.height))
+def crop(name: str, *boxes, gap: int = 8, w: float | None = None) -> dict:
+    """A screenshot cropped to one or more regions (stacked top to bottom); w = display width in percent of the text column."""
+    return {"name": name, "boxes": list(boxes), "gap": gap, "w": w}
+
+
+def img_uri(spec) -> tuple[str, str]:
+    """Embed a screenshot (a file name or a crop() spec). Returns (data URI, a key for the size report)."""
+    if isinstance(spec, str):
+        spec = {"name": spec, "boxes": [CROPS[spec]] if spec in CROPS else [], "gap": 0, "w": None}
+    im = Image.open(SHOTS / spec["name"]).convert("RGB")
+    boxes = [(l, t, r or im.width, bt or im.height) for l, t, r, bt in spec["boxes"]] or [(0, 0, im.width, im.height)]
+    parts = [im.crop(b) for b in boxes]
+    if len(parts) > 1:
+        width = max(p.width for p in parts)
+        height = sum(p.height for p in parts) + spec["gap"] * (len(parts) - 1)
+        canvas = Image.new("RGB", (width, height), "white")
+        y = 0
+        for part in parts:
+            canvas.paste(part, (0, y))
+            y += part.height + spec["gap"]
+        im = canvas
+    else:
+        im = parts[0]
     if im.width > MAX_WIDTH:
         im = im.resize((MAX_WIDTH, round(im.height * MAX_WIDTH / im.width)), Image.LANCZOS)
+    elif im.width < 1000:  # small crops are scaled up so that click-to-enlarge stays sharp
+        factor = min(2.0, 1400 / im.width)
+        im = im.resize((round(im.width * factor), round(im.height * factor)), Image.LANCZOS)
     buf = io.BytesIO()
     im.save(buf, "PNG", optimize=True)
     data = buf.getvalue()
+    mime = "image/png"
     if len(data) > 450_000:  # large screenshots: JPEG keeps the file small and the text readable
         buf = io.BytesIO()
         im.save(buf, "JPEG", quality=86, optimize=True)
         data, mime = buf.getvalue(), "image/jpeg"
-    else:
-        mime = "image/png"
-    IMG_INFO[name] = (im.width, im.height, len(data))
-    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+    key = f"{spec['name']}#{len(IMG_INFO)}"
+    IMG_INFO[key] = (im.width, im.height, len(data))
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}", key
 
 
 def esc(text: str) -> str:
     return html.escape(text, quote=True)
 
 
-def fig(key: str, caption: str, files: list[str] | str | None = None, svg: str | None = None, cls: str = "", sub: list[str] | None = None) -> str:
-    """A numbered figure. files: one or more screenshots (a row), or svg: an inline SVG string."""
+def shot(spec, style: str = "") -> str:
+    """One <img> that can be enlarged by clicking it on screen."""
+    uri, _ = img_uri(spec)
+    name = spec if isinstance(spec, str) else spec["name"]
+    width = None if isinstance(spec, str) else spec.get("w")
+    css = (f"width:{width}%;" if width else "") + style
+    return f'<img class="shot" src="{uri}" alt="{esc(name)}" title="Click to enlarge" style="{css}">'
+
+
+def fig(key: str, caption: str, files=None, svg: str | None = None, cls: str = "") -> str:
+    """A numbered figure. files: a screenshot or crop() spec (or a list: stacked, or in a row with cls 'row'), or svg: an inline SVG string."""
     FIGS.append(key)
     body = svg or ""
     if files:
-        names = [files] if isinstance(files, str) else files
-        imgs = "".join(f'<img src="{img_uri(n)}" alt="{esc(n)}">' for n in names)
-        body = imgs if len(names) == 1 else f'<div class="row">{imgs}</div>'
+        specs = files if isinstance(files, list) else [files]
+        body = "".join(shot(spec) for spec in specs)
+        if len(specs) > 1 and "stack" not in cls:
+            body = f'<div class="row">{body}</div>'
     return f'<figure id="fig-{key}" class="{cls}">{body}<figcaption><b>Figure §{key}§.</b> {caption}</figcaption></figure>'
 
 
@@ -306,14 +327,18 @@ def grouped_chart(groups: list[tuple[str, float, float, str, str]], width=640, h
 
 
 def trace_fig() -> str:
+    """Trace panels at a size where their text can be read: an Analyst excerpt, Substitution, the Verifier and the Writer."""
     FIGS.append("walk_trace")
-    def im(n):
-        return f'<img src="{img_uri(n)}" alt="{esc(n)}">'
-    return ('<figure id="fig-walk_trace" class="trace w80"><div class="tcols">'
-            f'<div>{im("trace_analyst.png")}</div>'
-            f'<div>{im("trace_intake.png")}<div class="tsub"><div>{im("trace_substitution.png")}</div><div>{im("trace_verifier.png")}{im("trace_writer.png")}</div></div></div>'
-            '</div><figcaption><b>Figure §walk_trace§.</b> Trace panels for the same run. Left: the Analyst and its nutrition searches. Right: Intake, then Substitution, '
-            'the Verifier (code only) and the Writer. Each shows its input, its tool calls and its tokens.</figcaption></figure>')
+    analyst = crop("trace_analyst.png", (0, 14, 608, 386), (0, 776, 608, 798), gap=4)
+    sub = crop("trace_substitution.png", (0, 0, 407, 447))
+    ver = crop("trace_verifier.png", (0, 0, 558, 400))
+    writer = crop("trace_writer.png", (0, 0, 311, 208))
+    cells = lambda *specs: "".join(f'<div>{shot(spec, "width:100%;")}</div>' for spec in specs)
+    return ('<figure id="fig-walk_trace" class="trace">'
+            f'<div class="trow" style="grid-template-columns:60fr 40fr">{cells(analyst, sub)}</div>'
+            f'<div class="trow" style="grid-template-columns:62fr 38fr">{cells(ver, writer)}</div>'
+            '<figcaption><b>Figure §walk_trace§.</b> Trace panels from the same run. Top left: an excerpt of the Analyst panel (its input line, its first ten nutrition searches and its token line; it made 21 searches in all). '
+            'Top right: Substitution and its five catalog searches. Bottom left: the Verifier (code only). Bottom middle: the Writer. The panel text is small even here; click a panel to enlarge it on screen.</figcaption></figure>')
 
 
 # ================================================================ small HTML helpers
@@ -347,12 +372,12 @@ def section(title: str, body: str) -> None:
 
 
 # ---- 1. Title ----------------------------------------------------------------------------------------------------
-section("1. HomeBite", f"""
+section("1. Title and links", f"""
 <p class="lead">Adapt a dish from home to the ingredients you can actually buy at your store, with nutrition computed in code from USDA data.</p>
 <table class="meta"><tbody>
 <tr><td><b>Author</b></td><td>Nicole Lin</td></tr>
 <tr><td><b>Course</b></td><td>MGT 409, AI Foundations for Managers, Yale SOM, Fall 2026</td></tr>
-<tr><td><b>Code</b></td><td><a href="{esc(git_remote)}">{esc(git_remote)}</a></td></tr>
+<tr><td><b>Repository</b></td><td><a href="{esc(git_remote)}">{esc(git_remote)}</a></td></tr>
 <tr><td><b>App</b></td><td>Not hosted online. Runs locally from a fresh clone; setup measured at about 35 seconds in a fresh-clone test
 (see README). The README itself estimates about 5 minutes for a first-time user, because that includes creating the <code>.env</code> file.</td></tr>
 </tbody></table>
@@ -363,10 +388,10 @@ It is a prototype: the catalog is a starter set of {F['catalog_rows']} illustrat
 <div class="split">
 <div>{callout(f'''<b>At a glance</b>
 <ul>
-<li><b>Design:</b> five stages (Intake, Analyst, Substitution, Verifier, Writer) plus an input guard and output checks; the Verifier is pure code. Model: gpt-6-luna through Portkey.</li>
+<li><b>Design:</b> four AI agents (Intake, Analyst, Substitution, Writer) and a Verifier that is plain code, plus an input guard (rules and one classifier call) and an output check (code). Model: gpt-6-luna through Portkey.</li>
 <li><b>Data:</b> {F['nutrition_rows']:,} USDA foods and {F['catalog_rows']} catalog items; {F['catalog_verified']} of the {F['catalog_rows']} catalog items have been verified against real store listings.</li>
 <li><b>Cost and speed (20 live runs, 10 dishes x 2 configurations):</b> baseline average {F['avg_cost']} per run and {F['avg_lat']} seconds per run.</li>
-<li><b>Checks:</b> {F['tests']} automated tests pass without spending tokens; the safety demo (which predates the diet check) passes {F['safety_demo']} cases.</li>
+<li><b>Checks:</b> {F['tests']} automated tests pass without spending tokens; the safety demo, re-run after the diet fix (it has no diet case), passes {F['safety_demo']} cases.</li>
 <li><b>Honest result:</b> a cheaper configuration cut cost by {pct_change('Cost per run').lstrip('-')} but lowered the nutrition match rate from {exp_rows['Nutrition match rate (avg)'][0]} to {exp_rows['Nutrition match rate (avg)'][1]}, so I did not adopt it.</li>
 </ul>''')}</div>
 <div>{fig('landing', 'The app on first load: settings in the sidebar, a text box, three example dishes and one button.', 'landing_page.png')}</div>
@@ -380,15 +405,14 @@ section("2. Motivation: who this is for", f"""
 Many of them arrive in a food environment that is unfamiliar. A 2015 study with seven focus groups and 32 college-age international students at an
 urban U.S. university found that students described many dietary challenges when adapting to American culture, shaped by the food environment,
 the campus, religion and personal preferences. The authors also report dietary changes associated with undesirable health outcomes such as weight gain (Alakaam et al., 2015).</p>
-<p>Where students shop matters. A master's thesis at East Carolina University (a survey of 142 international students in spring 2011, plus interviews) found that food choices were guided by whether native foods were available in local stores and by time in the U.S.; newcomers looked for familiar foods. Familiar food also carries meaning: in a small thesis study at one large public university (38 surveys, 11 interviews), 80% of the students who rated belonging differently for home-country foods versus overall reported more belonging with those foods. A small qualitative sample, so a hint, not a measurement.</p>
-<p>Money matters too. A survey of 853 students aged 18 to 34 at one Midwest university (April 2022) found food insecurity among 26.8% of international students, against 19.9% of White students and 35.6% of U.S.-born multicultural students; international students also used nutrition assistance programs, including the campus food pantry, more. One university only, so this shows the problem exists, not how large it is.</p>
+<p>Where students shop matters. A master's thesis at East Carolina University (142 international students surveyed in spring 2011, plus interviews) found that food choices followed whether native foods were available in local stores; newcomers looked for familiar foods. In a small thesis study at one large public university (38 surveys, 11 interviews), 80% of the students who rated belonging differently for home-country foods versus overall reported more belonging with those foods: a hint, not a measurement.</p>
+<p>Money matters too. A survey of 853 students aged 18 to 34 at one Midwest university (April 2022) found food insecurity among 26.8% of international students, against 19.9% of White students and 35.6% of U.S.-born multicultural students. One university only, so this shows the problem exists, not how large it is.</p>
 <h3>My own starting point</h3>
 <p>I am an international student from Taiwan. I love cooking and I'm passionate about nutrition. I find it challenging to get used to the food here in the US, and I miss my mom's cooking
 (or Taiwanese food in general) a lot. I designed this app because I think a lot of international students might share my experience and want to recreate some dishes from home.</p>
 <h3>How students cope today, and what it costs</h3>
-<p>The usual workarounds are a web search, asking a chatbot, asking family, or giving up on the dish. I timed one: searching Google for a vegetarian kimchi jjigae recipe took about
-2 minutes (one dish, one attempt, self-timed). It produced a recipe only: I still had to look up the nutrition facts of alternative ingredients myself, and the time excludes shopping and cooking.
-I did not measure what students spend in money or how often they give up, so I make no claim about either; the sources above support only that familiar food matters and that store availability shapes choices.</p>
+<p>The usual workarounds are a web search, asking a chatbot, asking family, or giving up on the dish. I timed one: searching Google for a vegetarian kimchi jjigae recipe took about 2 minutes (one dish, one attempt, self-timed) and produced a recipe only; I still had to look up nutrition facts myself.
+I did not measure what students spend in money or how often they give up, so I make no claim about either.</p>
 {callout("<b>What HomeBite is not.</b> It is not medical advice. It does not fix food insecurity. It is not a substitute for real store data: its catalog is a "
          f"starter set of {F['catalog_rows']} illustrative items, and none of them has been checked against a real store listing.")}
 """)
@@ -399,21 +423,19 @@ section("3. What is new here, and what is not", f"""
 <p>I compared HomeBite with three existing products as publicly described, and ran one hands-on test against a general chatbot. Product descriptions come from public announcements and web pages (listed under Sources), {CAUTION}.
 The right-hand column says where the other tool is stronger.</p>
 {table(['Tool', 'What it does well (as publicly described)', 'What HomeBite adds or does differently', 'Where it is stronger than HomeBite'], [
-    ['<b>Samsung Food</b> (launched September 2023)', 'An AI-powered food and recipe platform. Personalize Recipe changes a saved recipe to fit dietary requirements; its Food AI can swap ingredients for what users have at home or for nutrition; recipes can become shopping lists; nutrition information is available.',
-     'Starts from a specific dish from home and rebuilds it for one named store; every substitute must be a catalog product; a code check re-runs the substitution when an allergen or diet conflict appears.',
-     'A full platform with saved recipes and shopping lists; HomeBite is a single-purpose prototype.'],
-    ['<b>Ask Instacart</b> (2023)', 'An AI search tool built on OpenAI\'s ChatGPT plus Instacart\'s own models and catalog data (more than a billion shoppable items across more than 80,000 retail partner locations). It can suggest alternative ingredients (for example a fish similar to salmon) and generate ingredient lists for a meal.',
-     'Focuses on verifying each suggestion: catalog-only products, USDA-based nutrition computed in code, and an allowed answer of leaving the ingredient out.',
-     'Real catalogs at very large scale. HomeBite has 163 illustrative items.'],
-    ['<b>Cronometer</b>', 'A nutrition tracker that draws on USDA and other national food composition databases (for example USDA SR28 and NCCDB).',
-     'Uses one bundled USDA table (SR Legacy, 3,000 foods) inside a dish-adaptation flow, and compares the original and adapted versions.',
+    ['<b>Samsung Food</b> (2023)', 'An AI-powered food and recipe platform. Personalize Recipe adapts a saved recipe to dietary requirements; Food AI can swap ingredients; recipes become shopping lists; nutrition is shown.',
+     'Starts from a specific dish from home and rebuilds it for one named store; every substitute must be a catalog product; a code check re-runs the substitution on an allergen or diet conflict.',
+     'A full platform with saved recipes and shopping lists.'],
+    ['<b>Ask Instacart</b> (2023)', 'An AI search tool built on ChatGPT plus Instacart\'s models and catalog (more than a billion shoppable items at over 80,000 retail partner locations). It can suggest alternative ingredients and generate ingredient lists for a meal.',
+     'Verifies each suggestion: catalog-only products, USDA nutrition computed in code, and "leave it out" as an allowed answer.',
+     'Real catalogs at very large scale; HomeBite has 163 illustrative items.'],
+    ['<b>Cronometer</b>', 'A nutrition tracker drawing on USDA and other national food composition databases.',
+     'One bundled USDA table (SR Legacy, 3,000 foods) inside a dish-adaptation flow, comparing original and adapted versions.',
      'Broader databases and a full tracking product.'],
 ], widths=['15%', '33%', '30%', '22%'])}
 <h3>Is this just another recipe or meal-planning app?</h3>
-<p>It is adjacent to that crowded category, and the difference is narrow. First, it starts from one specific dish from home and rebuilds it for the student's own store; it does not plan meals.
-Second, the model proposes and code disposes. Products can only come from the catalog. Nutrition is computed in code from USDA data, and ingredients without a USDA entry are listed as excluded.
-Allergen conflicts, and conflicts with a vegetarian, vegan or pescatarian preference, are checked by code and trigger a re-run of the substitution step. "No substitute, leave it out" is an allowed answer, and it happens often (sections 7 and 8).
-Third, safety and cost behavior is measured (20 live runs, and a safety demo that can be rerun). It is a prototype of a verification layer, not a finished product.</p>
+<p>It is adjacent to that crowded category, and the difference is narrow. It starts from one dish from home and rebuilds it for the student's own store; it does not plan meals. The model proposes and code disposes: products can only come from the catalog, nutrition is computed in code from USDA data (ingredients without an entry are listed as excluded),
+and allergen and vegetarian, vegan or pescatarian conflicts are checked by code and trigger a re-run. "No substitute, leave it out" is an allowed answer, and it happens often (section 8). Safety and cost behavior is measured (20 live runs and a rerunnable safety demo). It is a prototype of a verification layer, not a finished product.</p>
 <h3>A head-to-head test with a general chatbot</h3>
 <p>This is one dish, one chatbot, one prompt and one run each. I gave ChatGPT (GPT-6) this request: “I'm an international student shopping at Walmart in the US. Adapt a vegetarian Korean kimchi jjigae using ingredients I can buy there, list the products to buy, and give calories and sodium per serving.”
 The app displayed “Worked for 1m 15s”. I ran HomeBite on the same dish with Walmart, dietary preference vegetarian, goal lower sodium (the chatbot prompt did not mention a sodium goal), 2 servings and the text “Korean kimchi jjigae”.
@@ -425,64 +447,52 @@ I ran HomeBite twice more after fixing the problem this test exposed (below): on
     ['<b>Vegetarian requirement</b>', 'Met: a vegetarian recipe (25 minutes, 2 servings, one pot) built around a vegan-labeled kimchi.',
      '<b>Not met.</b> The recipe included 120 g of pork belly and its first step browns it; the intro said the list included pork belly, so the version was not vegetarian.',
      'Pork belly no longer appears in the ingredient list or the steps. The diet check box is yellow: kimchi is kept, with a note that traditional kimchi often contains fish sauce or shrimp and the label should be checked.'],
-    ['<b>Products</b>', 'Three named Walmart products with prices (a vegan kimchi $4.87, extra-firm tofu $2.92, a gochujang-style chili sauce $4.38) plus everyday groceries. It said the products were found on Walmart\'s website, that prices are approximate and that availability at my store is not confirmed. I did not verify them.',
+    ['<b>Products</b>', 'Three named Walmart products with prices (a vegan kimchi $4.87, extra-firm tofu $2.92, a gochujang-style chili sauce $4.38) plus everyday groceries. It said prices are approximate and availability at my store is not confirmed. I clicked two of its Walmart links and both were correct and real; I did not check the third product, the prices or the availability.',
      '0 substitutes found; 3 items left out (gochugaru, dried anchovy, kelp). Kimchi, tofu and the rest were kept as common items, not checked against the catalog.',
      '0 substitutes found; 5 items left out (pork belly, gochujang, Korean chili flakes, dried anchovy, kelp). The starter catalog has no vegan-labeled kimchi, so generic kimchi was kept with a check-the-label warning.'],
-    ['<b>Nutrition and how it was derived</b>', 'A per-ingredient table summing to about 300 kcal and about 850 mg sodium per serving (about 430 kcal with 100 g of rice), described as approximate and based on published labels, with a reminder to check packages.',
-     'USDA values computed in code. Per serving: original 520.53 kcal and 539.09 mg sodium; adapted 517.48 kcal and 534.68 mg. Totals exclude gochugaru (no USDA entry).',
+    ['<b>Nutrition and how it was derived</b>', 'A per-ingredient table summing to about 300 kcal and about 850 mg sodium per serving (about 430 kcal with 100 g of rice), described as approximate. It also gave photos of the dish, an interactive slider and a note that the kimchi is the largest sodium source.',
+     'USDA values computed in code. Per serving: original 520.53 kcal and 539.09 mg sodium; adapted 517.48 kcal and 534.68 mg. Totals exclude gochugaru (no USDA entry). No photos or slider.',
      'USDA values computed in code. Per serving: original 530.42 kcal and 757.35 mg; adapted 131.2 kcal and 727.3 mg; fat falls from 48.1 g to 7.9 g and protein from 17.3 g to 9.4 g. Totals exclude gochujang.'],
-    ['<b>Extras</b>', 'Photos of the dish; an interactive slider for kimchi and rice amounts; a remark that the kimchi is the largest sodium source.',
-     'Allergen box, trace of every stage, usage panel. No photos, no slider.', 'The same, plus a Diet check box.'],
 ], widths=['12%', '29%', '29%', '30%'])}
-<p>The two nutrition sets are not comparable, because the recipes differ (pork belly or none, and different kimchi products and amounts). I did not check ChatGPT's numbers or products.</p>
-{fig('chatgpt', 'The ChatGPT answer: the request and the top of the answer (with the displayed 1 m 15 s), the Walmart shopping list, the cooking steps, the nutrition table (about 300 kcal and about 850 mg per serving) and the interactive slider.',
-     ['chatgpt_test_1.png', 'chatgpt_test_2.png', 'chatgpt_test_3.png', 'chatgpt_test_4.png', 'chatgpt_test_5.png'], cls='')}
-{fig('hb_pair', 'HomeBite on the same dish. Left column: at the time of the test (the pork belly, its first step and the intro note; the substitutions table; the nutrition chart and usage). Right column: after the diet fix (no pork belly in the list or steps; five items left out; the yellow Diet check box; nutrition after pork belly was removed). ' + NOSUB_NOTE,
-     ['homebite_test_1.png', 'homebite_after_diet_1.png', 'homebite_test_2.png', 'homebite_after_diet_2.png', 'homebite_test_3.png', 'homebite_after_diet_3.png'], cls='g2 splittable')}
-<p><b>What the test shows.</b> ChatGPT's answer met the vegetarian requirement, named real-looking Walmart products with prices, and included photos and an interactive estimate. Its displayed run time was 1 m 15 s against HomeBite's 33 s; the two did different work (the chatbot also made photos and looked up products), so I do not read the times as an advantage either way.
-HomeBite's answer at the time of the test was not vegetarian. Two of Alex's three suggestions, pictures and conversation, are things ChatGPT did in this test. ChatGPT also named a specific vegan-labeled kimchi product, while HomeBite kept generic kimchi with a check-the-label warning because its catalog has no such product.</p>
-<p><b>What HomeBite's checks add in principle, and where this test did and did not show them.</b> Catalog-only products: not shown as a benefit here. No product was named at all, because the 163-item starter catalog had nothing suitable, so in this test the restriction cost usefulness.
-USDA values computed in code with excluded items listed: shown (the chart lists gochugaru, and later gochujang, as excluded), but because the recipes differ I cannot say whose numbers are closer to the truth.
-Allergen and diet checks with a re-run: the allergen check was not exercised (no allergies selected). The diet check did not exist at the time of the test; after the fix it flagged pork belly on the first pass and removed it through the re-run (section 6).</p>
+<p>The two nutrition sets are not comparable, because the recipes differ (pork belly or none, and different kimchi products and amounts).</p>
+<p><b>What the test shows.</b> ChatGPT's answer met the vegetarian requirement, named three Walmart products with prices (two of the links I clicked were correct and real), and included photos and an interactive estimate. Its displayed run time was 1 m 15 s against HomeBite's 33 s, but the two did different work, so I do not read the times as an advantage either way.
+HomeBite's answer at the time of the test was not vegetarian. Two of Alex's three suggestions (section 7), pictures and conversation, are things ChatGPT did here. ChatGPT also named a specific vegan-labeled kimchi, while HomeBite kept generic kimchi with a check-the-label warning because its catalog has no such product.</p>
+<p><b>What HomeBite's checks add, and what this test showed.</b> Catalog-only products: not shown as a benefit; no product was named at all, because the starter catalog had nothing suitable. USDA values computed in code with excluded items listed: shown, but because the recipes differ I cannot say whose numbers are closer to the truth.
+Allergen and diet checks: the allergen check was not exercised (no allergies selected); the diet check did not exist at the time, and after the fix it flagged pork belly on the first pass and removed it through the re-run (section 6).</p>
+{fig('chatgpt', 'The ChatGPT answer, two of five screens: the Walmart shopping list (top) and the nutrition table (bottom; about 300 kcal and about 850 mg per serving). The other three screens, not shown, are the request with the top of the answer (displayed run time 1 m 15 s), the cooking steps and the interactive slider.',
+     [crop('chatgpt_test_2.png', (0, 0, 605, 430), w=62), crop('chatgpt_test_4.png', (0, 0, 847, 410), w=85)], cls='stack')}
+{fig('hb_pair', 'HomeBite on the same dish. Before the diet fix (top): the ingredient list includes pork belly. After the diet fix (bottom): pork belly is gone and the yellow Diet check box appears. The full screens are embedded in the file; click to enlarge.',
+     [crop('homebite_test_1.png', (300, 520, 1000, 806), w=88), crop('homebite_after_diet_3.png', (300, 15, 1000, 170), w=88)], cls='stack')}
 """)
 
 # ---- 4. Agents ---------------------------------------------------------------------------------------------------
 section("4. The agents", f"""
-<p>HomeBite is a pipeline of small steps. Three are AI agents with a narrow job, one is plain code, and two more checks (an input guard and an output check) sit around them.
-Each AI agent returns a structured result; the Writer's fields are free text, and they are checked before they are shown.</p>
+<p>HomeBite is a pipeline of small steps. Intake, Analyst, Substitution and Writer are AI agents with a narrow job; the Verifier is plain code; and two more checks sit around them: an input guard (free rules plus one classifier call) and an output check (code).
+Each agent returns a structured result; the Writer's text is checked before it is shown.</p>
 {table(['Stage', 'Job', 'Tools', 'Hands to the next stage'], [
-    ['<b>Input guard</b>', 'Free rules first (instruction overrides, requests for the prompt or keys, attempts to change store or allergies through the text), then one cheap classifier call. If the classifier cannot run, the request stops.', 'Rules in code; one AI call', 'Pass, or a friendly message with no further tokens'],
-    ['<b>Intake</b>', 'Turns the text and sidebar settings into a request (dish, cuisine, servings, goals), or asks one clarifying question.', 'None', 'A structured request'],
-    ['<b>Analyst</b>', 'Breaks the dish into ingredients with weights, flags those hard to find in a U.S. supermarket, and finds USDA entries.', 'USDA search', 'Ingredient list with USDA ids'],
-    ['<b>Substitution</b>', 'For each hard-to-find ingredient, picks a product that really comes back from a search of the student\'s store, or says there is none.', 'Catalog search (store and allergies fixed by code), USDA search', 'A substitution plan'],
-    ['<b>Verifier</b> (pure code)', 'Checks each substitute exists in the catalog, computes nutrition for both versions, runs the allergen check and, for a vegetarian, vegan or pescatarian preference, the diet check, and lists unmatched ingredients. Re-runs Substitution once if there is a definite allergen or diet conflict.', 'Catalog lookup, nutrition math, allergen check', 'Verified ingredients, nutrition comparison, allergen result'],
-    ['<b>Writer</b>', 'Writes the intro, the cooking steps and a note on what will taste different. It never sees nutrition numbers.', 'None', 'Text'],
-    ['<b>Output check</b> (code)', 'Rejects leaked prompts, key-like strings, invented numbers, nutrition claims and product names that were not confirmed. Retries once, then uses a plain template.', 'Rules in code', 'The text shown, or the template'],
+    ['<b>Input guard</b> (rules + 1 AI call)', 'Free rules first (overrides, requests for the prompt or keys, attempts to change store or allergies), then one cheap classifier call; if it cannot run, the request stops.', 'Rules; one AI call', 'Pass, or a friendly message with no further tokens'],
+    ['<b>Intake</b> (AI)', 'Turns the text and sidebar settings into a request, or asks one clarifying question.', 'None', 'A structured request'],
+    ['<b>Analyst</b> (AI)', 'Breaks the dish into ingredients with weights, flags those hard to find in a U.S. supermarket, finds USDA entries.', 'USDA search', 'Ingredients with USDA ids'],
+    ['<b>Substitution</b> (AI)', 'For each hard-to-find ingredient, picks a product that really comes back from a search of the student\'s store, or says there is none.', 'Catalog search (store and allergies fixed by code), USDA search', 'A substitution plan'],
+    ['<b>Verifier</b> (code, no AI)', 'Checks each substitute exists, computes nutrition for both versions, runs the allergen check and the diet check (vegetarian, vegan, pescatarian), lists unmatched ingredients; re-runs Substitution once on a definite conflict.', 'Catalog lookup, nutrition math, checks', 'Verified lists, nutrition, check results'],
+    ['<b>Writer</b> (AI)', 'Writes the intro, steps and a taste note. It never sees nutrition numbers.', 'None', 'Text'],
+    ['<b>Output check</b> (code)', 'Rejects leaked prompts, key-like strings, invented numbers, nutrition claims and unconfirmed product names; retries once, then uses a plain template.', 'Rules', 'The text shown, or the template'],
 ], widths=['15%', '45%', '20%', '20%'])}
-{fig('diagram', 'How a request moves through the system. Blue boxes are trusted inputs and data files; pink boxes are AI calls; the green box is pure code. Dashed arrows are exits and data lookups.', svg=diagram())}
+{fig('diagram', 'How a request moves through the system. Blue boxes are trusted inputs and data files; pink boxes are AI calls (the classifier call in the input guard and the four agents); the green box is the Verifier, plain code. Dashed arrows are exits and data lookups.', svg=diagram())}
 <h3>Which model, and why</h3>
 <p>All AI calls use gpt-6-luna through Portkey with the course key. I chose the low-cost tier: $0.10 per million input tokens, $0.01 per million cached input tokens and $0.50 per million output tokens (course pricing slide), with cache writes at $0.125.
 The code calls the model through the Responses API, because the chat completions endpoint rejected function tools for this model (a comment in <code>llm.py</code> records this).</p>
-<h3>Why five stages instead of one prompt</h3>
-<p>Separation of duties. The model is good at reading a dish and proposing ingredients, and bad at being trusted with numbers, so numbers and checks are code. Each stage also gets its own small prompt and its own limits.
-I did not build or test a single-prompt version, so I cannot report how it would compare in cost or quality.</p>
+<h3>Why separate stages instead of one prompt</h3>
+<p>Separation of duties: the model reads a dish and proposes ingredients, and code computes numbers and checks. Each stage also gets its own small prompt and limits. I did not build or test a single-prompt version, so I cannot report how it would compare in cost or quality.</p>
 <h3>One real run, step by step</h3>
-<p>This is a live run of Kung pao chicken with Walmart selected and a peanut allergy. Settings go in the sidebar; the text box holds only the dish name.</p>
-{fig('walk_top', 'The result page for the run: a summary strip (substitutes found, items left out, allergen status, run time, estimated cost), the ingredient list with left-out items struck through, the steps and the taste note.', 'result_1_top.png', cls='w86')}
+<p>This is a live run of Kung pao chicken with Walmart selected and a peanut allergy (its result page is Figure §peanut§ in section 6). Settings go in the sidebar; the text box holds only the dish name.</p>
+
 <p>Behind the page is a trace of every stage. The panels below are from the same run. The Intake panel shows the trusted settings and the student text in separate delimited blocks. The Analyst ran 21 nutrition searches (counted from the panel) in 3 requests.
 The Substitution agent searched the catalog five times and found a product for two of them. The Verifier, which is code, confirmed both products exist in the Walmart catalog, computed nutrition twice (original and adapted)
 and found one allergen conflict, which sent the run back to Substitution once.</p>
 {trace_fig()}
-<p>Cross-check against the usage panel. The panels for Intake (311 in, 79 out), Analyst (8,116 in of which 2,855 cached, 1,769 out), Substitution (1,905 in, 711 out) and Writer (853 in, 422 out) add up to
-11,185 input and 2,981 output tokens. The usage panel reports 13,661 input, 2,855 cached and 3,879 output tokens over 10 requests, so 2,476 input and 898 output tokens are not in the panels shown.
-That remainder is consistent with the guard call and the substitution re-run, whose panels are not in these screenshots. The cached tokens match exactly because only the Analyst had cache hits.</p>
-{fig('walk_usage', 'The usage panel for the run: 13,661 input, 2,855 cached and 3,879 output tokens, 10 requests.', 'usage_panel.png', cls='w60')}
-<h3>Design choices that are actually in the code</h3>
-<ul>
-<li><b>Trusted settings.</b> Store, allergies, diet, servings and goal come from the sidebar and travel as configuration. The student's text is wrapped in delimiters and treated as data.</li>
-<li><b>The Analyst is not told the student's allergies.</b> It describes the traditional dish, so a conflicting ingredient reaches the code check instead of being silently dropped by the model.</li>
-<li><b>Tool wrappers fix the store and allergies.</b> The catalog search takes the store and allergy list from the run settings, not from the model's arguments, so text like a request to search another store cannot change them (tested).</li>
-</ul>
+<p>Cross-check: the Intake, Analyst, Substitution and Writer panels add up to 11,185 input and 2,981 output tokens; the usage panel reports 13,661 input (2,855 cached) and 3,879 output tokens over 10 requests. The remaining 2,476 input and 898 output tokens are consistent with the guard call and the substitution re-run, whose panels are not shown.</p>
+<p><b>Design choices that are in the code.</b> Store, allergies, diet, servings and goal come from the sidebar as configuration; the student's text is wrapped in delimiters and treated as data. The Analyst is not told the student's allergies: it describes the traditional dish, so a conflicting ingredient reaches the code check instead of being silently dropped by the model.</p>
 """)
 
 # ---- 5. Tokenomics -----------------------------------------------------------------------------------------------
@@ -497,21 +507,17 @@ Costs are computed from token counts with the course prices; the guard stage is 
     ['Input tokens', F['avg_in'], F['p90_in']], ['Cached input tokens', F['avg_cached'], F['p90_cached']], ['Output tokens', F['avg_out'], F['p90_out']],
     ['Cost', F['avg_cost'], F['p90_cost']], ['Latency (seconds)', F['avg_lat'], F['p90_lat']],
 ], widths=['50%', '25%', '25%'])}
-<p>Cached input is {F['cache_ratio']} of input. The slowest run took {F['lat_max']:.1f} seconds and the fastest {F['lat_min']:.1f} seconds across all {F['runs']} runs. The provider reported cache-write tokens
-({int(F['cw_all']):,} across all {F['runs']} runs), and they are priced at the cache-write rate.</p>
+<p>Cached input is {F['cache_ratio']} of input. Latency ranged from {F['lat_min']:.1f} to {F['lat_max']:.1f} seconds across all {F['runs']} runs. Cache-write tokens ({int(F['cw_all']):,} across all runs) are priced at the cache-write rate.</p>
 <h3>Where the cost goes</h3>
 {fig('cost_stage', 'Average cost per run by stage, baseline configuration. The Analyst, which looks up every ingredient, is more than half of the cost. Source: the stage table in logs/token_summary.md.',
      svg=bar_chart([(s.capitalize(), num(st[s][4]), f"{st[s][4]}  ({st[s][3]})") for s in stage_names]))}
-{table(['Stage', 'Input', 'Cached', 'Output', 'Cost per run', 'Share', 'Requests', 'Tool calls'],
-       [[s.capitalize()] + st[s][:3] + st[s][3:] for s in stage_names], widths=['16%', '11%', '11%', '11%', '15%', '10%', '13%', '13%'])}
 <p>The guard stage costs {st['guard'][3]} per request on average ({st['guard'][0]} input and {st['guard'][2]} output tokens), {st['guard'][4]} of the total; two real classifier calls in the safety demo used {guard_line.group(1)} and {guard_line.group(2)} tokens.
 Output is priced at five times normal input and is {exp_split[0][5]} of baseline cost.</p>
 <h3>Cost per user and at scale</h3>
 <p>The monthly figures use <b>12 runs per user per month, which is my assumption</b>, not something I measured. They include the guard cost.</p>
-{table(['Users', 'Runs per month', 'Estimated monthly cost'], [[u, F['proj'][u][1], F['proj'][u][2]] for u in F['proj']], widths=['30%', '35%', '35%'])}
+<p>{'; '.join(f"{u} user{'s' if u != '1' else ''}: {F['proj'][u][1]} runs, {F['proj'][u][2]}" for u in F['proj'])} per month.</p>
 <p>They exclude hosting, storage and bandwidth, and they do not model provider rate limits at 100 or 10,000 users. They are estimates from tokens and the course price slide, not an invoice.
-The per-day token cap of {F['daily_cap']} tokens (input plus output) implies at most about {F['daily_obs']} per day at the measured token mix, or {F['daily_worst']} per day in the worst case where every capped token is an output token.
-The whole 20-run measurement used {F['experiment_tokens']:,} input plus output tokens, about {usd(F['experiment_cost'], 3)}.</p>
+The per-day token cap of {F['daily_cap']} tokens implies at most about {F['daily_obs']} per day at the measured token mix ({F['daily_worst']} in the worst case). The whole 20-run measurement used {F['experiment_tokens']:,} input plus output tokens, about {usd(F['experiment_cost'], 3)}.</p>
 <h3>Can the cost be cut?</h3>
 <p>I tested three levers, switchable by a settings object and off by default: put each agent's static instructions first and the dynamic text last (so provider prompt caching could apply),
 trim the Analyst and Writer prompts while keeping every safety rule, and add a batched nutrition lookup so the Analyst searches all ingredients in one call. The cost-saver configuration turns on all three together.
@@ -519,8 +525,7 @@ Each dish was run once per configuration, alternating which went first.</p>
 {table(['Metric', 'Baseline', 'Cost-saver', 'Change'], [[k] + exp_rows[k] for k in
     ['Input tokens', 'Cached input tokens', 'Output tokens', 'Cost per run', 'Tool calls', 'Latency (s)', 'Nutrition match rate (avg)', 'Writer fallback rate', 'Catalog valid rate (proposed substitutes found in catalog)',
      'Allergen detection rate (conflict_detected / expected, 5 dishes)', 'Residual allergen conflicts (count)']], widths=['46%', '18%', '18%', '18%'])}
-<p>Cost split per run: baseline {exp_split[0][1]} fresh input, {exp_split[0][2]} cached input, {exp_split[0][3]} output; cost-saver {exp_split[1][1]}, {exp_split[1][2]} and {exp_split[1][3]}.
-Tool calls fell by {pct_change('Tool calls').lstrip('-')} and cost fell by {pct_change('Cost per run').lstrip('-')}; the cost-saver was cheaper on 9 of 10 dishes.
+<p>Tool calls fell by {pct_change('Tool calls').lstrip('-')} and cost fell by {pct_change('Cost per run').lstrip('-')}; the cost-saver was cheaper on 9 of 10 dishes.
 The combined cost-saver did not raise caching: cached input fell by {pct_change('Cached input tokens').lstrip('-')}, so the savings came from fewer tokens, not from more cache hits. Because the three levers were tested together, I cannot say whether prompt order alone had any effect.</p>
 {callout(f"<b>The cost-saver was not adopted.</b> It cut cost, but the nutrition match rate fell from {exp_rows['Nutrition match rate (avg)'][0]} to {exp_rows['Nutrition match rate (avg)'][1]}, "
          "and it was lower on 7 of 10 dishes (equal on 3, higher on none), so this is unlikely to be noise alone. A lower match rate means more ingredients are left out of the nutrition totals. "
@@ -531,8 +536,7 @@ The combined cost-saver did not raise caching: cached input fell by {pct_change(
 section("6. Safety", f"""
 <p>The table lists each risk, the defense I built, and the evidence. Evidence is either an automated test, the safety demo (a script that exercises each defense), or a screenshot in this report.</p>
 {table(['Risk', 'Defense built', 'Evidence'], [
-    ['Prompt injection, requests for the system prompt or keys', 'Free input rules run first; student text is wrapped in delimiters and treated as data; a canary marker in every prompt detects leaks.', 'Safety demo; Figure §safety_grid§ (blocked at 0 tokens); tests.'],
-    ['Changing the store or allergies through the text box', 'Those settings come only from the sidebar. Rules catch attempts; the catalog search takes store and allergies from the run settings, not from the model.', 'Test that such text cannot change them; Figure §safety_grid§.'],
+    ['Instruction overrides, requests for the system prompt or keys, and changing the store or allergies through the text box', 'Free input rules run first; student text is wrapped in delimiters and treated as data; a canary marker in every prompt detects leaks. Store and allergies come only from the sidebar, and the catalog search takes them from the run settings, not from the model.', 'Safety demo; Figure §safety_grid§ (blocked at 0 tokens); tests that such text cannot change them.'],
     ['Medical-advice and extreme-restriction requests', 'A classifier call screens the text. Medical requests are declined with a pointer to a doctor or dietitian. Extreme-restriction requests are declined gently with no numbers or tips and a pointer to a helpline organisation by name only.', 'Safety demo; Figure §safety_grid2§.'],
     ['Invented numbers or products', 'Verifier catalog check; output check rejects numbers not in the verified data, nutrition claims and unconfirmed product names; one retry, then a plain template built from verified data.', 'Safety demo (fake writer cases); tests.'],
     ['Loops and overspending', f'Per-agent request and tool-call caps (for example the Analyst: {int(const("ANALYST_REQUEST_LIMIT"))} requests, {int(const("ANALYST_TOOL_CALL_LIMIT"))} tool calls); token caps of {int(const("RUN_TOKEN_CAP")):,} per run, {int(const("SESSION_TOKEN_CAP")):,} per session and {int(const("DAILY_TOKEN_CAP")):,} per day (read from the usage log); {int(const("RATE_LIMIT_RUNS"))} runs per hour per session.', 'Safety demo (forced tool loop, session cap, rate limit); tests.'],
@@ -540,41 +544,35 @@ section("6. Safety", f"""
     ['Allergen conflicts', 'Code checks the adapted ingredient list. A definite conflict triggers one re-run of Substitution; if a conflict remains, the recipe is shown only as not safe. Items marked uncertain always carry a check-the-label warning.', 'Live peanut run (Figure §peanut§); offline test of the not-safe screen; Figure §safetychecks§.'],
 ], widths=['22%', '50%', '28%'])}
 <h3>Defenses working</h3>
-{fig('safety_grid', 'Two requests stopped before any recipe was made, both at 0 tokens (see the usage tables). Left: an injection hidden in a dish description is blocked by the free input rules. Right: an attempt to ignore the peanut allergy is blocked by the same rules. (Screenshots cropped to the app window; their cost column still used placeholder prices, so I rely only on the token counts.)',
-     ['blocked_injection.png', 'override_attempt_blocked.png'], cls='')}
-{fig('safety_grid2', 'Two requests declined by the classifier. Left: a medical-advice request is declined and the student is pointed to a doctor or dietitian. Right: an extreme-restriction request is declined gently, with no numbers or tips and a pointer to a helpline organisation by name.',
-     ['medical_advice_decline.png', 'extreme_restriction_decline.png'], cls='')}
+{fig('safety_grid', 'Two requests stopped before any recipe was made, both at 0 tokens. Cropped to the text typed and the message shown. Top: an injection hidden in a dish description. Bottom: an attempt to ignore the peanut allergy. Both are blocked by the free input rules.',
+     [crop('blocked_injection.png', (380, 405, 1180, 472), (380, 640, 1180, 700), w=90), crop('override_attempt_blocked.png', (380, 405, 1350, 472), (380, 640, 1350, 700), w=100)], cls='stack')}
+{fig('safety_grid2', 'Two requests declined by the classifier, cropped the same way; each long message line is cut into a left and a right strip, read top to bottom. Top: a medical-advice request, declined with a pointer to a doctor or dietitian. Bottom: an extreme-restriction request, declined gently with no numbers or tips and a helpline organisation named.',
+     [crop('medical_advice_decline.png', (380, 405, 1100, 472), (380, 650, 1100, 688), (1085, 650, 1805, 688), w=72), crop('extreme_restriction_decline.png', (380, 405, 1100, 472), (380, 654, 1100, 681), (1085, 654, 1805, 681), (380, 684, 1100, 708), w=72)], cls='stack')}
 <p>The classifier calls for the two declined requests used 342 input and 41 output tokens (medical) and 341 input and 67 output tokens (extreme restriction), one request each, as the usage tables show.
-The safety demo ({F['safety_demo']} cases) covers the injection, key-leak, prompt-leak, store and allergy overrides, oversized input, forced tool loop, tool-call flood, session cap, rate limit, an invented number and product, and the kung pao peanut case. The demo predates the diet check, so it does not cover it.</p>
+The safety demo ({F['safety_demo']} cases) covers the injection, key-leak, prompt-leak, store and allergy overrides, oversized input, forced tool loop, tool-call flood, session cap, rate limit, an invented number and product, and the kung pao peanut case. I re-ran the demo after the diet fix ({F['safety_demo']} again); it has no diet case, and the diet check is covered by tests and logs/diet_fix_check.md.</p>
 
 <h3>Two live allergen runs</h3>
 <p><b>Peanut allergy, Kung pao chicken, Walmart.</b> The first check flagged peanuts as a definite conflict and the substitution step was re-run once. Peanuts were left out of the recipe and struck through on the page; three other ingredients with no store match (dried red chilies, Chinese black vinegar and Shaoxing wine) were left out too, so four items were left out in total.
 The page shows a yellow warning, not a green box, because soy sauce, cornstarch and vegetable oil could not be confirmed peanut-free from the catalog or keyword list.</p>
-<p><b>Fish allergy, Vietnamese chicken pho, Aldi</b> (a fresh-clone check; the figures come from my Prompt 9 report, not from the repo logs): 44 seconds, 16,373 input tokens (4,328 cached, 5,406 cache-write), 3,794 output tokens,
+<p><b>Fish allergy, Vietnamese chicken pho, Aldi</b> (a fresh-clone check I ran; the run output was not saved in the repo): 44 seconds, 16,373 input tokens (4,328 cached, 5,406 cache-write), 3,794 output tokens,
 11 requests, about $0.0033. The first pass flagged fish sauce and the substitution re-run removed it.</p>
-{fig('peanut', 'The live peanut run. Highlighted: left-out ingredients (peanuts struck through) and the yellow check-the-label warning. ' + NOSUB_NOTE, 'safety_peanuts_removed.png', cls='w52')}
-<div class="two">
-{fig('demo', 'The safety demo output file, ending with the pass count.', 'terminal_showing_safety_demo_at_1919.png')}
-{fig('safetychecks', 'The safety checks list from the trace for the peanut run: the allergen conflict, the re-run and the output check.', 'safety_checks.png')}
-</div>
+{fig('peanut', 'The live peanut run: the ingredient list, with peanuts and three other items left out and struck through, and the yellow check-the-label warning. ' + NOSUB_NOTE, crop('safety_peanuts_removed.png', (55, 20, 700, 300), (55, 690, 700, 810), w=68), cls='stack')}
+{fig('demo', 'The last 15 lines of the safety demo output, ending with the pass count (screenshot from an earlier run; the re-run differs only in token and cost numbers). The terminal text is small; click to enlarge.', crop('terminal_showing_safety_demo_at_1919.png', (226, 646, 1320, 900)))}
+{fig('safetychecks', 'The safety checks list from the trace for the peanut run: the allergen conflict, the re-run and the output check.', crop('safety_checks.png', (20, 50, 700, 360), w=70))}
 <h3>A problem the measurement found, and the fix</h3>
 <p>In the 20-run measurement, a gluten-allergy dish (Japanese chicken katsu curry) kept panko in the final recipe in both configurations, because the allergen keyword list had no entry for panko; it was only marked uncertain.
-I extended the keyword list (whole-word matching, so nutmeg and eggplant are not flagged). A before-and-after check on all saved results (logs/allergen_fix_check.md) shows only that dish changed: 2 of 14 saved results with an allergy (the two katsu curry runs). A new live run of the dish flagged panko, flour and soy sauce, re-ran the substitution step, and removed all three, so panko is no longer in the final recipe.
-A later check of noodle types (Prompt 8, with tests) found that rice vermicelli had been treated as safe for gluten rather than uncertain. That is fixed: rice, glass and sweet-potato noodles are now uncertain; wheat noodles, ramen, udon and soba stay definite conflicts.</p>
-<h3>A second problem, found by the chatbot comparison</h3>
-<p>In the head-to-head test (section 3), HomeBite's own answer with a vegetarian preference kept 120 g of pork belly and its first step browned it; only the intro admitted the version was not vegetarian.
-The cause was that the dietary preference reached the AI only as text, and nothing in code checked it, while allergies were checked by code. I fixed it in the same style as the allergen path: vegetarian, vegan and pescatarian are now checked by code with a keyword list,
-a definite conflict triggers one substitution re-run, and a conflict that remains is shown as not that diet. The cooking steps are also checked so they cannot use an ingredient that was left out.
-Re-checked: a live run with the original settings flagged pork belly on the first pass and removed it through the re-run, and pork belly is absent from the ingredient list and the steps (logs/diet_fix_check.md); the page now shows a yellow Diet check box for kimchi.
-Offline, the new check flagged nothing on the {DIET['d08_clear']} saved vegetarian ratatouille runs, and {DIET['unaffected']} of {DIET['unaffected_of']} saved results without a diet preference are unaffected.
-It does not cover other preferences (halal and kosher are still only passed to the AI), and items such as kimchi stay uncertain: the page asks the student to check the label.</p>
+I extended the keyword list (whole-word matching, so nutmeg and eggplant are not flagged). A before-and-after check on all saved results (logs/allergen_fix_check.md) shows only that dish changed (2 of 14 saved results with an allergy). A new live run flagged panko, flour and soy sauce, re-ran the substitution step, and removed all three.
+A later noodle check (with tests) found that rice vermicelli had been treated as safe for gluten rather than uncertain; rice, glass and sweet-potato noodles are now uncertain, and wheat noodles, ramen, udon and soba stay definite conflicts.</p>
+<h3>A second problem, found by a head-to-head comparison with a general chatbot</h3>
+<p>In the head-to-head test (section 3), HomeBite kept 120 g of pork belly in a vegetarian answer, because the dietary preference reached the AI only as text and no code checked it. I fixed it in the same style as the allergen path (see the risk table), and the steps are now also checked so they cannot use a left-out ingredient.
+Re-checked live with the original settings: pork belly was flagged on the first pass and removed through the re-run, and it is absent from the list and steps (logs/diet_fix_check.md); the page shows a yellow Diet check box for kimchi.
+Offline, the check flagged nothing on the {DIET['d08_clear']} saved vegetarian ratatouille runs, and {DIET['unaffected']} of {DIET['unaffected_of']} saved results without a diet preference are unaffected. Halal and kosher are still only passed to the AI.</p>
 <h3>What is not proven</h3>
 <ul>
 <li>The role-play jailbreak case in the demo was stopped by the AI provider's own content filter before my classifier answered, so it does not show my classifier working.</li>
-<li>The red not-safe screens for a remaining allergen or diet conflict were tested offline with a fake model only. In the live runs, the re-run always removed the conflict.</li>
-<li>The diet check was verified live on one dish and offline on the saved results; it is a keyword list, not a guarantee, and the safety demo predates it.</li>
+<li>The red not-safe screens for a remaining allergen or diet conflict were tested offline with a fake model only; in the live runs, the re-run always removed the conflict, and allergen behavior was observed on 7 dishes (14 runs) plus the live runs, never with a real catalog.</li>
+<li>The diet check was verified live on one dish and offline on the saved results; it is a keyword list, not a guarantee, and the safety demo has no diet case.</li>
 <li>The allergen check uses catalog tags and a keyword list. It is not a guarantee. Ingredients such as Worcestershire sauce stay uncertain, and the page asks the student to check the label.</li>
-<li>Allergen behavior was observed on 7 dishes in the measurement (14 runs) plus the demo and the live runs shown here, never with a real catalog.</li>
 </ul>
 """)
 
@@ -585,48 +583,60 @@ section("7. Impact", f"""
 <p>A friend, Alex, tried HomeBite in person on my laptop and agreed to be named by first name. He entered his mom's potato beef stew with Whole Foods selected, no allergies, the lower-sodium goal and 2 servings.
 The run took 18 seconds, used 5,458 input tokens (0 cached) and 1,776 output tokens over 5 requests, and cost an estimated $0.0015. No substitutions were needed (0 substitutes, 0 items left out).
 This was a single tester and a dish with no substitutions, so it tested usability, not the substitution engine.</p>
-<p>He thought it was a cool concept, found the instructions easy to follow and the ingredient list clear. In his words: “This is fun to use and I look forward to recreating my mom's dishes using this!”
+<p>He thought it was a cool concept, found the instructions easy to follow and the ingredient list clear. In his words: “This is so interesting! I can't wait to try recreating my mom's dishes with this!”
 His three ideas: allow multiple selections for allergens, dietary preferences and goals (for example low sodium and low calorie together; the allergy box already allows several choices, so he may not have noticed);
 show pictures of the dishes; and turn the input into a chatbot that talks with you about the dish. Two of those, pictures and conversation, are things ChatGPT did in the head-to-head test in section 3.</p>
-{fig('friend1', 'Alex\'s run. Left: the summary strip, ingredients and steps for his potato beef stew (18 s, $0.0015). Right: the usage panel (5,458 input, 0 cached, 1,776 output tokens, 5 requests).', ['friend_test_1.png', 'friend_test_3.png'], cls='w70')}
-<h3>(b) Time</h3>
-<p>My manual web search for one vegetarian kimchi jjigae recipe took about 2 minutes and gave a recipe only. HomeBite's measured run times were {F['lat_min']:.1f} to {F['lat_max']:.1f} seconds across the {F['runs']} runs, averaging {F['avg_lat']} seconds for the baseline,
-and it returns an adapted ingredient list, steps, substitutes and a nutrition comparison. These are not like-for-like: one self-timed search for one dish against 20 runs of an app, and the search time excludes looking up nutrition.</p>
-<h3>(c) Cost</h3>
-<p>Measured: {F['avg_cost']} per run on average ({F['p90_cost']} at p90). Projected at 12 runs per user per month (my assumption): {F['proj']['1'][2]} per user per month.</p>
-<h3>(d) Quality measures from the {F['runs']} runs</h3>
-{table(['Measure', 'Baseline (10 runs)', 'Cost-saver (10 runs)', 'Note'], [
-    ['Proposed substitutes found in the store catalog', f"{QB['valid']} of {QB['proposed']}", f"{QS['valid']} of {QS['proposed']}", 'The Verifier would also downgrade an invalid one.'],
-    ['Substituted / left out (total over 10 dishes)', f"{QB['substituted']} / {QB['none']}", f"{QS['substituted']} / {QS['none']}", 'Many left-out ingredients: the catalog is small.'],
-    ['Allergen conflict detected by the first check, for dishes where one was expected', f"{QB['detected']} of {QB['expected_dishes']} dishes", f"{QS['detected']} of {QS['expected_dishes']} dishes", 'Caveat: I chose the expected words myself, and this was measured before the panko keyword fix.'],
-    ['Residual allergen conflicts in the final recipe', f"{QB['residual']} of {QB['with_allergy']} runs with an allergy", f"{QS['residual']} of {QS['with_allergy']}", 'By the code check. The panko case was only marked uncertain at the time.'],
-    ['Nutrition match rate (average)', exp_rows['Nutrition match rate (avg)'][0], exp_rows['Nutrition match rate (avg)'][1], 'Share of ingredients with a verified USDA entry.'],
-    ['Writer needed a retry / fell back to the template', f"{QB['regenerated']} / {QB['fallback']}", f"{QS['regenerated']} / {QS['fallback']}", ''],
-], widths=['36%', '19%', '19%', '26%'])}
-<h3>(e) Reach</h3>
-<p>For context only, not a forecast: 1,177,766 international students were enrolled at U.S. institutions in 2024/25. I have no data on how many would use an app like this.</p>
-{callout('<b>Measured:</b> token use, cost and latency of 20 runs; safety demo results; one user test. <b>Potential, not measured:</b> time saved for students, savings in money, adoption, and any health benefit.')}
+{fig('friend1', 'Alex\'s run, the summary strip only: 0 substitutes found, 0 items left out, no allergies selected, 18 s (cost $0.0015; 5,458 input, 0 cached, 1,776 output tokens, 5 requests).', crop('friend_test_1.png', (300, 40, 1330, 215), w=100))}
+<h3>(b) Time and cost</h3>
+<p>My manual web search for one vegetarian kimchi jjigae recipe took about 2 minutes and gave a recipe only. HomeBite's measured run times were {F['lat_min']:.1f} to {F['lat_max']:.1f} seconds across the {F['runs']} runs ({F['avg_lat']} seconds on average for the baseline), and it returns an adapted list, steps, substitutes and a nutrition comparison.
+These are not like-for-like: one self-timed search for one dish against 20 runs of an app, and the search time excludes looking up nutrition. Cost, measured: {F['avg_cost']} per run on average ({F['p90_cost']} at p90); projected at 12 runs per user per month (my assumption): {F['proj']['1'][2]} per user per month.</p>
+<h3>(c) Quality measures</h3>
+<p>The cost-saver table in section 5 holds the catalog-valid, allergen-detection and residual-conflict rates. Not shown there: in the 10 baseline runs, {QB['substituted']} ingredients got a substitute and {QB['none']} were left out; {QB['valid']} of {QB['proposed']} proposed baseline substitutes were found in the store catalog; the Writer needed a retry in {QB['regenerated']} baseline run and fell back to the template in {QB['fallback']}; {QB['detected']} of {QB['expected_dishes']} dishes with an expected allergen conflict were detected by the first check (I chose the expected words myself, and this was measured before the panko keyword fix); and {QB['residual']} of {QB['with_allergy']} baseline runs with an allergy kept a conflict in the final recipe (the panko case was only marked uncertain then).</p>
+{callout('<b>Measured:</b> token use, cost and latency of 20 runs; safety demo results; one user test. <b>Potential, not measured:</b> time saved for students, savings in money, adoption, and any health benefit. For context only, not a forecast: 1,177,766 international students were enrolled at U.S. institutions in 2024/25; I have no data on how many would use an app like this.')}
 """)
+
+# left-out ingredients in the 10 baseline runs, from logs/measurement/results (saved results, not typed in)
+LEFT = []   # (dish id, store, dish short name, [ingredients], [stated reasons])
+SUBST_TOTAL = 0
+for _p in sorted((ROOT / "logs" / "measurement" / "results").glob("d*_baseline.json")):
+    _d = json.loads(_p.read_text(encoding="utf-8"))
+    _id = _p.name[:3]
+    _ver = _d["verified"]
+    SUBST_TOTAL += sum(1 for s in _ver["substitutions"] if s.get("status") == "substituted")
+    _reasons = {s["original_name"]: s.get("reason", "") for tr in _d["trace"] if tr["stage"] in ("substitution", "substitution_rerun") and tr.get("output")
+                for s in tr["output"]["substitutions"]}
+    if _ver["omitted_from_adapted"]:
+        LEFT.append((_id, dishes[_id]["store"], dishes[_id]["text"], _ver["omitted_from_adapted"], [_reasons.get(n, "") for n in _ver["omitted_from_adapted"]]))
+LEFT_N = sum(len(x[3]) for x in LEFT)
+assert LEFT_N == QB["none"] and SUBST_TOTAL == QB["substituted"], (LEFT_N, QB["none"], SUBST_TOTAL, QB["substituted"])
+by_store = {}
+for _x in LEFT:
+    by_store[_x[1]] = by_store.get(_x[1], 0) + len(_x[3])
+LEFT_ROWS = [[esc(x[2].split(" with ")[0].split(",")[0][:34]), esc(x[1]), str(len(x[3])), esc("; ".join(x[3]))] for x in LEFT]
+n_dishes_none = len(dishes) - len(LEFT)
+assert n_dishes_none == 3 and by_store["Asian grocery"] == 8 and LEFT_N == 18  # the prose below quotes these
+store_text = ", ".join(f"{k} {v}" for k, v in sorted(by_store.items(), key=lambda kv: -kv[1]))
 
 # ---- 8. Limits and next steps -------------------------------------------------------------------------------------
 section("8. Limits and next steps", f"""
 <h3>What does not work yet</h3>
-{fig('nutr_limit', 'A live kung pao run: calories fall by 82.66 and sodium rises by 161.59 mg. The totals exclude the ingredients listed at the bottom (no USDA entry), so the change reflects what could be matched, not a healthier recipe.', 'result_3_nutrition.png', cls='w52')}
 <ul>
-<li>The catalog is a starter set of {F['catalog_rows']} illustrative items, none verified against real listings. Over the 10 baseline runs, {QB['substituted']} ingredients got a substitute and {QB['none']} were left out.</li>
-<li>Some ingredients have no USDA entry and are excluded from the nutrition totals; the page says which.</li>
+<li>The catalog is a starter set of {F['catalog_rows']} illustrative items, none verified against real listings. Over the 10 baseline runs, only {QB['substituted']} ingredients got a substitute (table below).</li>
 <li>The Goal selector (for example lower sodium) is passed to the AI as context but is not enforced or verified by code, and the results page does not say whether the goal was met. Allergies, the store and the vegetarian, vegan and pescatarian preferences are enforced by code; goals and other preferences (halal, kosher) are not.</li>
-<li>Nutrition differences between the original and the adapted dish mostly reflect ingredients that were left out or have no USDA entry, not a healthier recipe. Figure §nutr_limit§ shows this: sodium rises, which is consistent with the original dish's dark soy sauce having no USDA entry (so it is excluded) while its substitute does.</li>
-<li>Allergies accept several selections; dietary preference and goal accept one choice each.</li>
+<li>Some ingredients have no USDA entry and are excluded from the nutrition totals (the page says which), so nutrition differences between the original and the adapted dish mostly reflect ingredients that were left out or have no USDA entry, not a healthier recipe. In a live kung pao run, calories fell by 82.66 and sodium rose by 161.59 mg, which is consistent with the original dish's dark soy sauce having no USDA entry (so it is excluded) while its substitute does.</li>
 <li>When a check removes the main protein, HomeBite does not rebalance the dish: in the diet-fix example calories fell from 530.42 to 131.2 per serving, because the pork belly was removed and nothing replaced it, so the adapted dish is a very light stew, not a healthier recipe.</li>
-<li>The diet check was verified live on one dish and offline on the saved results, and the keyword list is not a guarantee.</li>
 <li>The starter catalog has no vegan-labeled kimchi, so HomeBite keeps generic kimchi with a check-the-label warning, where ChatGPT named a specific vegan-labeled product.</li>
 <li>There are no dish pictures and no chat. The combined cost-saver did not raise caching. Most of the roughly 33 seconds is model generation, and I did not break latency down by stage.</li>
 <li>Allergen checks are not a guarantee, and this is not medical advice. The Windows setup steps in the README are untested. Only one person tested the app.</li>
 </ul>
+<h3>What was left out, from the saved baseline runs</h3>
+<p>Over the 10 baseline runs, {SUBST_TOTAL} ingredients got a substitute and {LEFT_N} were left out (the same counts as section 7). The table lists every left-out ingredient from logs/measurement/results/; {n_dishes_none} of the 10 dishes had none.
+By store: {store_text}. In every case the saved result says no suitable product was found in that store's catalog; the stated reasons are in the saved results, and for five items (flour, egg, yogurt, butter, dried shrimp) they also mention an allergy or an ingredient conflict.</p>
+{table(['Dish', 'Store', 'Left out', 'Ingredients left out'], LEFT_ROWS, cls='dense', widths=['24%', '14%', '7%', '55%'])}
+<p>Of the {LEFT_N}, 13 are seasonings, sauces, wines, sugars or preserved and dried items (doubanjiang, gochujang, tamarind paste, saffron and similar); the other five are flour, garlic chives, egg, yogurt and butter. Three dishes had no ingredient left out, and the two Asian-grocery dishes account for 8 of the {LEFT_N}. That is a count from 10 dishes, so it shows where this starter catalog was thin, not why.</p>
 <h3>If I had another month</h3>
 <ul>
-<li>Use real, licensed store data and verify it, replacing the starter catalog.</li>
+<li>Use real, licensed store data and verify it, replacing the starter catalog. First add and verify the items in the table above (the sauces, pastes, spices and preserved items for the Asian-grocery and Walmart dishes), then re-run the same 10 dishes to see how many are still left out.</li>
 <li>Have the Verifier compute whether a goal was met and show it on the page, and rebalance a dish when a check removes its main protein.</li>
 <li>Allow several goals and diets at once.</li>
 <li>Add conversational follow-ups, which would raise both cost and the safety surface.</li>
@@ -640,14 +650,15 @@ section("8. Limits and next steps", f"""
 # ---- Appendix -----------------------------------------------------------------------------------------------------
 APPENDIX = f"""
 <section class="appendix"><h2>Appendix: where the numbers come from</h2>
-{table(['Metric', 'Source'], [
-    ['Per-run tokens, cost, latency, cache ratio, stage breakdown, projections, daily-cap spend; cost-saver comparison and quality columns; latency range, cache-hit flags, tool calls, cache-write tokens, experiment totals, substitute and allergen counts', 'logs/token_summary.md, logs/cost_experiment.md and logs/token_report.csv (columns summed by submission/build_report.py; costs recomputed with usage.py prices)'],
-    ['Safety demo pass count and guard tokens; allergen keyword fix, 2 of 14 results changed; diet check second run and offline false-alarm check', 'logs/safety_demo_output.txt; logs/allergen_fix_check.md; logs/diet_fix_check.md'],
-    ['Limits and caps; prices per million tokens and cache-write rate', 'safety.py; usage.py (source: course slides, Cached Token Cost slide, gpt-6-luna row)'],
-    [f"{F['tests']} automated tests; {F['nutrition_rows']:,} USDA foods; {F['catalog_rows']} catalog items, {F['catalog_verified']} verified; known limits; repository URL", 'python -m pytest -q, run when this report was built (no tokens spent); data/*.csv; README.md; git remote get-url origin'],
-    ['Alex\'s test (18 s, 5,458 / 0 / 1,776 tokens, 5 requests, $0.0015); manual search about 2 minutes; 12 runs per user per month; Vietnamese chicken pho run and about 35 seconds from clone to a running page', 'My inputs and assumption; the pho run and the 35 seconds are from the Prompt 9 fresh-clone report (not in the repo logs); Alex\'s numbers cross-checked against his usage screenshot'],
-    ['Kung pao run totals (13,661 / 2,855 / 3,879, 10 requests); ChatGPT test (1 m 15 s, prices, about 300 kcal and 850 mg); HomeBite test and after-fix runs (33 s, 41 s, nutrition values)', 'Usage screenshot and trace panels (section 4); my inputs and the chatgpt_test and homebite screenshots (section 3)'],
-], widths=['55%', '45%'])}
+<ul class="cols2">
+<li><b>Tokens, cost, latency, cache, stage breakdown, projections, cost-saver comparison, quality counts:</b> logs/token_summary.md, logs/cost_experiment.md, logs/token_report.csv (summed by submission/build_report.py; costs recomputed with usage.py prices).</li>
+<li><b>Safety demo pass count and guard tokens; allergen fix (2 of 14 changed); diet check runs:</b> logs/safety_demo_output.txt, logs/allergen_fix_check.md, logs/diet_fix_check.md.</li>
+<li><b>Limits, caps and prices per million tokens:</b> safety.py; usage.py (course slides, Cached Token Cost slide, gpt-6-luna row).</li>
+<li><b>{F['tests']} tests; {F['nutrition_rows']:,} USDA foods; {F['catalog_rows']} catalog items, {F['catalog_verified']} verified; repository URL:</b> python -m pytest -q at build time (no tokens); data/*.csv; README.md; git remote.</li>
+<li><b>Left-out ingredient table:</b> logs/measurement/results/*_baseline.json (saved results, read by the build script).</li>
+<li><b>Kung pao run totals, ChatGPT test and HomeBite test runs:</b> usage screenshot and trace panels (section 4); the ChatGPT and HomeBite screenshots (section 3).</li>
+<li><b>Author's own measurements and assumptions:</b> Alex's test (18 s, 5,458 / 0 / 1,776 tokens, 5 requests, $0.0015; checked against his usage screenshot); manual search about 2 minutes; 12 runs per user per month; the Vietnamese chicken pho run and about 35 seconds from clone to a running page (a fresh-clone check I ran; output not saved in the repo); the two ChatGPT links I clicked.</li>
+</ul>
 <h2>Sources</h2>
 <ol class="sources">
 <li>Institute of International Education, <i>Open Doors 2025 press release</i>. <a href="https://www.iie.org/news/open-doors-2025-press-release/">https://www.iie.org/news/open-doors-2025-press-release/</a></li>
@@ -665,7 +676,7 @@ APPENDIX = f"""
 # ================================================================ CSS and assembly
 
 CSS = """
-@page { size: letter; margin: 0.7in; }
+@page { size: letter; margin: 0.6in; }
 * { box-sizing: border-box; }
 html { font-size: 10.5pt; }
 body { font-family: -apple-system, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif; color: #3A2330; line-height: 1.27; margin: 0 auto; max-width: 7.1in; padding: 0.4in 0.2in; background: #fff; }
@@ -683,6 +694,7 @@ table { border-collapse: collapse; width: 100%; margin: 6px 0 9px; font-size: 8.
 th, td { border: 1px solid #E7C7D3; padding: 2px 6px; vertical-align: top; text-align: left; }
 th { background: #FFF0F5; color: #3A2330; }
 tr { break-inside: avoid; }
+table.dense { font-size: 8.5pt; } table.dense td, table.dense th { padding: 1px 5px; }
 table.meta td { border: none; border-bottom: 1px solid #F1DDE5; padding: 3px 4px; } table.meta td:first-child { width: 12%; white-space: nowrap; }
 figure { margin: 8px 0; break-inside: avoid; }
 figure img, figure svg { width: 100%; height: auto; display: block; border: 1px solid #E7C7D3; }
@@ -697,6 +709,13 @@ figure.narrow2 { width: 80%; margin-left: auto; margin-right: auto; }
 figure.narrow { width: 62%; margin-left: auto; margin-right: auto; }
 figcaption { font-size: 8.8pt; color: #6B4A5A; margin-top: 3px; }
 .row { display: flex; gap: 6px; align-items: flex-start; } .row img { flex: 1 1 0; min-width: 0; width: 50%; }
+.trow { display: grid; gap: 6px; align-items: start; margin-bottom: 6px; } .trow > div { min-width: 0; }
+img.shot { cursor: zoom-in; }
+figure img.shot { height: auto; }
+figure.stack img.shot { margin: 4px auto; }
+#zoomov { display: none; position: fixed; inset: 0; background: rgba(58,35,48,.88); align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
+#zoomov img { max-width: 96vw; max-height: 96vh; background: #fff; }
+.cols2 { column-count: 2; column-gap: 18px; padding-left: 14px; margin: 3px 0; } .cols2 li { break-inside: avoid; margin: 1px 0; }
 .tcols { display: grid; grid-template-columns: 37% 1fr; gap: 8px; align-items: start; } .tcols > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tcols img { width: 100%; }
 .tsub { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: start; } .tsub > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -709,9 +728,22 @@ figcaption { font-size: 8.8pt; color: #6B4A5A; margin-top: 3px; }
 .split { display: grid; grid-template-columns: 1.15fr 1fr; gap: 10px; align-items: start; }
 .two figure { margin: 6px 0; }
 section { margin-bottom: 4px; }
-.appendix { font-size: 8.8pt; } .appendix table { font-size: 8.3pt; } ol.sources { font-size: 7.8pt; line-height: 1.2; padding-left: 18px; margin: 2px 0; } ol.sources li { margin: 0; }
-@media print { body { padding: 0; max-width: none; } a { color: #B02458; } }
+.appendix { font-size: 8.5pt; } .appendix li { line-height: 1.2; } ol.sources { font-size: 7.8pt; line-height: 1.2; padding-left: 18px; margin: 2px 0; } ol.sources li { margin: 0; }
+@media print { body { padding: 0; max-width: none; } a { color: #B02458; } #zoomov { display: none !important; } img.shot { cursor: auto; } }
 """
+
+ZOOM = '''<div id="zoomov"><img alt="enlarged screenshot"></div>
+<script>
+(function () {
+  var overlay = document.getElementById('zoomov'), big = overlay.firstElementChild;
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.classList && t.classList.contains('shot')) { big.src = t.src; overlay.style.display = 'flex'; }
+    else if (overlay.style.display === 'flex') { overlay.style.display = 'none'; }
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') overlay.style.display = 'none'; });
+})();
+</script>'''
 
 TITLE = f"""
 <header><h1>HomeBite</h1>
@@ -726,7 +758,7 @@ body = re.sub(r"§([a-z0-9_]+)§", lambda m: str(numbers[m.group(1)]), body)
 page = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>HomeBite: final report</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><style>{CSS}</style></head>
-<body>{body}</body></html>"""
+<body>{body}{ZOOM}</body></html>"""
 OUT.write_text(page, encoding="utf-8")
 
 print(f"wrote {OUT} ({OUT.stat().st_size / 1e6:.2f} MB), {len(order)} figures")

@@ -72,7 +72,7 @@ limits: input 1000 chars | 20 runs/hour/session | run 100,000 tokens | session 8
         safety check: Output check: passed (Writer text passed)
         safety check: Usage limits (end of run): passed (16,737 tokens this run, under the 100,000 cap)
         stages and tokens: {'guard': 367, 'intake': 392, 'analyst': 9733, 'substitution': 2403, 'substitution_rerun': 2508, 'writer': 1334}
-        total: {'input_tokens': 13015, 'cached_input_tokens': 2996, 'output_tokens': 3722, 'requests': 10, 'estimated_cost_usd': 0.025656}
+        total: {'input_tokens': 13015, 'cached_input_tokens': 2996, 'cache_write_tokens': 4072, 'output_tokens': 3722, 'requests': 10, 'estimated_cost_usd': 0.002995}
 
         WHAT THE USER SEES (rendered by the app):
           [header] Kung pao chicken at Walmart
@@ -80,5 +80,5 @@ limits: input 1000 chars | 20 runs/hour/session | run 100,000 tokens | session 8
           [yellow box] Couldn't confirm these are free of peanuts. Check the label. - soy sauce - cornstarch - sesame oil - vegetable oil
           [ingredients] ['- chicken thigh: about 280 g', '- Great Value Ground Black Pepper 3 oz: about 1 g', '- scallions: about 40 g', '- garlic: about 8 g', '- ginger: about 8 g', '- soy sauce: about 20 g', '- granulated sugar: about 6 g', '- cornstarch: about 10 g', '- sesame oil: about 4 g', '- vegetable oil: about 16 g', '- ~~peanuts~~ (left out, no suitable substitute)', '- ~~dried red chili peppers~~ (left out, no suitable substitute)']
 
-Guard stage: 2 real classifier calls, tokens per call [403, 401], average 402, est. cost $0.00109 total (placeholder prices)
+Guard stage: 2 real classifier calls, tokens per call [403, 401], average 402, est. cost $0.00012 total (placeholder prices)
 19/19 cases passed

@@ -509,3 +509,36 @@ Screenshots: chatgpt_test_1 to chatgpt_test_5.
 7. Test count and safety demo: the suite now has 268 tests (it was 188); let the build recompute it and update any text that still says 188. Do not re-run the safety demo; keep citing the committed logs/safety_demo_output.txt and say that it predates the diet check.
 8. Head-to-head and limits: note that ChatGPT named a specific vegan-labeled kimchi product, while HomeBite kept generic kimchi with a check-the-label warning because its catalog has no such product. In section 8 add that when a check removes the main protein, HomeBite does not rebalance the dish (calories fell from 530 to 131 per serving in the example), and that the diet check was verified live on one dish and offline on the saved results.
 ````
+
+## Report revisions 3: legibility, catalog table, jargon, safety demo refresh
+
+````
+Revise submission/report.html again. Several instructions from my previous revision request did not reach you (only items 5-8 arrived), so apply the ones below. This step only edits the report, its build script and submission/ files, and (item 4) regenerates one committed log by running the existing demo script. Do NOT change app code, prompts, data or tests. Keep everything not listed as it is.
+
+PAGE BUDGET: the report is 15 pages, the maximum allowed, and graders print on other machines. Target 13-14 pages in headless Chrome so a different font cannot push it past 15. If a change adds length, make room by tightening: merge duplicate tables, drop duplicate figures, reduce the appendix to a compact two-column list at 8.5 pt, or cut repeated sentences. Tell me what you cut.
+
+1. Fixes
+ a. Section 4 opening says three of the stages are AI agents. Verify from the code and correct it: Intake, Analyst, Substitution and Writer are AI agents; the Verifier is plain code; plus the input guard (rules plus one classifier call) and the output check (code). Make sections 1 and 4 and the diagram caption agree.
+ b. Remove every internal workflow reference. Search the HTML for "Prompt", "prompt 8", "Prompt 9", "10a", "10b" and similar. Reword to: "a later noodle check", "a fresh-clone check I ran (the run output was not saved in the repo)", "found by a head-to-head comparison with a general chatbot". In the appendix rename "My inputs" to "Author's own measurements and assumptions". The report must never mention prompt numbers.
+ c. Repo link: https://github.com/kl2278/homebite (no .git). Rename the heading "1. HomeBite" to "1. Title and links".
+ d. Alex's quote: keep a sentence in quotation marks only if it is exactly this one: "This is so interesting! I can't wait to try recreating my mom's dishes with this!". If empty, convert any quoted sentence into a paraphrase without quotation marks.
+ e. If the test count in the text is not 268, fix it.
+
+2. Screenshot legibility and the page budget (graded under report design)
+ - Every screenshot's body text must be readable on paper: at least about 7 pt at print size. Where a figure holds many small screens (the five ChatGPT screens; the six HomeBite screens), do this instead: ChatGPT figure = only the shopping-list screen and the nutrition-table screen (chatgpt_test_2 and chatgpt_test_4), side by side only if legible, otherwise stacked at about 60% page width; describe the other three screens in the text. HomeBite before/after = one "before" image that shows the pork belly in the ingredient list and one "after" image that shows the Diet check box, each cropped to the relevant region.
+ - Other small figures: crop to the relevant region (the input text and message for the blocked requests; the Usage rows only; the last 15 lines of the safety demo output; the checks list), and show at most two per row.
+ - Trace figure: Substitution and Verifier panels at full column width; the Analyst panel as a cropped excerpt (its input line, the first ten tool calls, its tokens line).
+ - Add click-to-enlarge on screen for every screenshot using inline CSS and a small inline script only, disabled in print. The full-size originals stay embedded.
+ - Report the page count before and after.
+
+3. Section 8: what the catalog could not supply
+ From the saved results in logs/measurement/results/ (baseline configuration only), build a compact table of every ingredient that was left out: dish, store, ingredient (and the model's stated reason only if the saved result has one). Add counts by dish and by store and one factual sentence on what this implies (do not guess why an item is missing). Use it to ground the first "if I had another month" item (which items to add and verify first). State that 7 ingredients got a substitute and 18 were left out, matching section 7. Keep it compact (8.5 pt, two columns if needed).
+
+4. Safety demo refresh (small live cost, about 3 cents)
+ safety.py changed after logs/safety_demo_output.txt was committed (the output check now also rejects steps that use a left-out ingredient). Run python scripts/safety_demo.py once and show me the pass count. If it is still 19/19, commit the refreshed logs/safety_demo_output.txt. If anything fails, STOP and show me; do not edit the report or commit. Then update the report: remove "the safety demo predates the diet check" and say instead that the demo was re-run after the diet fix and has no diet case (the diet check is covered by tests and logs/diet_fix_check.md). Compare the last 15 lines of the new output with the old one: if they differ other than token or cost numbers, tell me so I can retake the figure; otherwise keep the existing figure.
+
+5. Chatbot product check: I clicked two of ChatGPT's Walmart links and found that they are correct and real. If I checked, state exactly what I found in the section 3 comparison; if not, keep "not verified".
+
+DELIVERY
+Rebuild; report the page count (target 13-14), file size, and a list of every change made, including everything you cut for space and every figure you cropped or dropped. Re-run the number cross-check and flag anything unsourced. Search the HTML once more for "Prompt", "[FILL" and ".git" and show me the results. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Report revisions 3: legibility, catalog table, jargon, safety demo refresh". Don't push.
+````
