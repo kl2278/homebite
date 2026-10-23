@@ -371,3 +371,26 @@ Now the README and the fresh-clone dry run. Build only what's listed here. Do no
 
 Show me: the full README, the fresh-clone timing and each step's result, the pho run result, the friendly-message check, the hygiene findings (especially anything in git history), the test results, and git status. Then stop.
 ````
+
+## Read-only question: how the goals setting is used
+
+Finding: goals reach Intake, Analyst and Substitution as text only; no code or Writer prompt uses them.
+
+````
+Read-only question, no code changes, no LLM calls, no commit. In agents.py, trace how the "goals" setting (for example "lower sodium") is used: which agents' prompts receive it, and does any code or stage act on it? Then open logs/measurement/results/d04_baseline.json (Korean kimchi jjigae, goal lower sodium) and show me what the Writer text said about sodium, and whether any ingredient or substitute was chosen because of the goal. Answer in plain language, with line references, and say clearly if the goal has no effect unless something is substituted.
+````
+
+## Docs: document goal and nutrition-delta limits
+
+````
+Docs-only change, no code changes and no LLM calls. Do not change any visible text in the app. Edit README.md:
+
+1. In "Known limits", add three bullets in the existing style:
+   - "The Goal selector (for example lower sodium) is passed to the AI as context but is not enforced or verified by code, and the results page does not say whether the goal was met. Allergies and store are enforced by code; goals are not."
+   - "Nutrition differences between the original and the adapted dish mostly reflect ingredients that were left out or have no USDA entry, not a healthier recipe. Treat the comparison as a consistency check on the ingredient list, not as a health claim."
+   - "Allergies accept several selections; dietary preference and goal accept one choice each."
+2. If README.md still contains the placeholder <repo-url>, replace it with the URL from `git remote get-url origin` (both places).
+3. Follow the prompt-log rule from CLAUDE.md: log this prompt verbatim, and also add a short entry for my previous read-only question about how the goals setting is used, with a one-line note of the finding (goals reach Intake, Analyst and Substitution as text only; no code or Writer prompt uses them). Confirm .env is not staged and commit "Docs: document goal and nutrition-delta limits". Don't push.
+
+Show me the README diff and git status. Then stop.
+````

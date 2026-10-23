@@ -118,6 +118,9 @@ Committed evidence files: `logs/safety_demo_output.txt`, `logs/token_report.csv`
 - This is not medical advice.
 - A run takes about 30 seconds.
 - Prices and costs are estimates from the course pricing slide (gpt-6-luna), not an invoice.
+- The Goal selector (for example lower sodium) is passed to the AI as context but is not enforced or verified by code, and the results page does not say whether the goal was met. Allergies and store are enforced by code; goals are not.
+- Nutrition differences between the original and the adapted dish mostly reflect ingredients that were left out or have no USDA entry, not a healthier recipe. Treat the comparison as a consistency check on the ingredient list, not as a health claim.
+- Allergies accept several selections; dietary preference and goal accept one choice each.
 
 ## Safety in one paragraph
 
