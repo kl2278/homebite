@@ -642,3 +642,32 @@ Follow-up from my own testing of the app. With the sidebar Allergies box EMPTY a
 
 Show me: the diagnosis, the keyword and trigger lists, the test results (count), the false-alarm check, the exact blocked message and warning text, the contents of allergy_text_check.md, and git status. If the fix needs changes outside safety.py, app.py, tests, scripts, README or the new log file, stop and tell me instead of continuing.
 ````
+
+## Report and slides: allergy-in-text fix, 318 tests
+
+````
+Update the report and slides for the latest fix. Edit only submission/report.html, submission/slides.html, their build scripts, submission/ files and AI_prompts.md. Do NOT touch app code, data, tests or logs. Keep the report at 14 printed pages or fewer and the slides at 10 slides. Re-run the number cross-check afterwards.
+
+NEW SCREENSHOT: submission/screenshots/safety_allergy_text_v2.png (the typed text "I want to make kung pao chicken, but I'm allergic to peanuts.", the blue message asking to select peanuts under Allergies, and the Usage table at 0 tokens). View it before using it.
+
+SOURCES: logs/allergy_text_check.md, README.md (Known limits), safety.py, tests/test_allergy_text.py, and the facts below. Check the facts against those files; if a file disagrees, the file wins and you tell me.
+
+FACTS
+- Before the fix (author's own manual test, live run): Walmart, Allergies box empty, text "I want to make kung pao chicken, but I am allergic to peanuts." The app ran the full pipeline and returned a recipe with 30 g of peanuts and 16 g of peanut oil, and the steps used both. Run time 28 s; 10,329 input tokens (2,781 cached), 2,898 output tokens, 8 requests, $0.0023; 1 substitute found, 3 items left out. The only notices were a generic medical banner and, far below the recipe, "You didn't select any allergies, so no allergen check was run."
+- After the fix: a free rule screens the typed text before any AI call. If it states one of the nine sidebar allergens that is not selected, the request stops at 0 tokens and asks the student to select it. The live screenshot shows this for "I'm allergic to peanuts" (0 tokens). An allergy outside the nine (for example kiwi) produces a yellow warning that HomeBite cannot check it. With peanuts selected and the text just "kung pao chicken", a normal run completed; an example button was not blocked. 50 new tests; 318 tests in total (the build recomputes the count).
+- Limits: the rule runs in the app, not in the measurement scripts, and none of the 10 measured dish texts is affected (see logs/allergy_text_check.md); the keyword list is not exhaustive; it errs toward asking (for example "pasta, I don't want soy" also asks for wheat); an allergy outside the nine is only a warning.
+
+REPORT CHANGES
+1. Test count: every place that says 268 must say the current count (318). Search for "268".
+2. Section 6 risk table: add a row "An allergy stated in the text but not selected in the sidebar": defense = the free text screen described above; evidence = the new figure, logs/allergy_text_check.md, tests.
+3. Section 6: add a short paragraph "A third problem, found by my own testing before recording a demo video", told as found, fixed and re-checked, using the facts above, with the new screenshot as a figure. Be explicit about the limits, and say the "before" in logs/allergy_text_check.md was reproduced offline with a fake model while the original observation was a live run.
+4. Update every sentence that says what code enforces so it also covers "an allergy typed in the text box but not selected is stopped before any AI call": the section 1 intro, At a glance, the section 4 input-guard row, and the section 8 limits (allergies are checked only for the nine sidebar categories).
+5. Page budget: this adds text and a figure to a report that is at 14 pages. Make room by tightening wording in sections 2, 3, 5 and 7, not by shrinking screenshots below their current size. List everything you cut.
+6. If the report does not already contain "168.84", add to the section 8 limits bullet about ingredients with no USDA entry: "In a screen-recorded test of a Japanese curry-style dish with a dairy allergy selected, the curry roux, dashi and mirin were left out and the udon noodles had no USDA entry, so the nutrition totals excluded the main starch: 168.84 kcal and 5.6 g carbohydrate per serving, identical for the original and the adapted version. The page lists the excluded ingredients, but its wording 'likely a bit higher' understates the gap when a main ingredient is missing."
+
+SLIDES CHANGES
+7. Slide 8: footer "Safety demo 19/19 - 318 tests" (use the current count). Change the line about gaps to "My own tests found three gaps (panko, pork belly, an allergy typed in the text box). All fixed and re-checked." If it fits without crowding, add a small chip "Allergy typed in text: stopped at 0 tokens". Update that slide's speaker notes. Search the slides for "268" and "two gaps" and fix any other occurrence. No new slide; keep 10 and re-check the print-pdf page count.
+
+DELIVERY
+Rebuild both. Show: report page count and file size, the slides page count, every change made, everything cut for space, and any number you could not source. Search both HTML files for "268", "[FILL", "Prompt", ".git" and "two gaps" and show the results. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Report and slides: allergy-in-text fix, 318 tests". Don't push.
+````

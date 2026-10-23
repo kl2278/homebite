@@ -17,6 +17,8 @@ REVEAL = "5.1.0"
 CDN = f"https://cdnjs.cloudflare.com/ajax/libs/reveal.js/{REVEAL}"
 FONT_URL = "https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap"
 LABEL_FONT = "/System/Library/Fonts/Helvetica.ttc"
+import re
+TESTS = re.search(r"(\d+) automated tests", (ROOT / "submission" / "report.html").read_text(encoding="utf-8")).group(1)  # same count as the report
 
 
 # ---------------------------------------------------------------- images
@@ -275,9 +277,9 @@ SLIDES.append(slide("Safety", f"""
   <div class="card imgcard">{shot(peanut, "Peanuts struck through", "sm")}<b>Allergen found, removed, re-checked</b></div>
   <div class="card imgcard">{shot(pork, "Pork belly struck through", "sm")}<b>Diet conflict found, removed, re-checked</b></div>
 </div>
-<p class="line">Caps on spend: per run, session, day and hour. <span class="pill">Safety demo 19/19</span> <span class="pill">268 tests</span></p>
-<p class="line soft">My own measurement and a head-to-head test found two gaps (panko, pork belly). Both fixed and re-checked.</p>
-""", "Each defense has evidence in the report: the blocked and declined requests, the live peanut run, and the pork belly run after the fix. The safety demo passed 19 of 19 again, but the model replies were probably served from the provider's cache, so that is not a fresh sample of the model. The checks are keyword lists, not guarantees."))
+<p class="line">Caps on spend: per run, session, day and hour. <span class="pill">Safety demo 19/19</span> <span class="pill">{TESTS} tests</span> <span class="pill soft">Allergy typed in text: stopped at 0 tokens</span></p>
+<p class="line soft">My own tests found three gaps (panko, pork belly, an allergy typed in the text box). All fixed and re-checked.</p>
+""", "Each defense has evidence in the report: the blocked and declined requests, the live peanut run, and the pork belly run after the fix. The safety demo passed 19 of 19 again, but the model replies were probably served from the provider's cache, so that is not a fresh sample of the model. The third gap I found myself before recording a demo video: an allergy typed in the text box but not selected in the sidebar now stops at 0 tokens. The checks are keyword lists, not guarantees."))
 
 # 9 ------------------------------------------------------------------ impact
 SLIDES.append(slide("A real user tried it", """
