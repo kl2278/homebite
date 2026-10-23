@@ -90,7 +90,7 @@ The five stages:
 
 ## Tests and evidence
 
-- `python -m pytest -q` runs the whole suite (about 190 tests). It uses a fake model and spends no tokens.
+- `python -m pytest -q` runs the whole suite (about 270 tests). It uses a fake model and spends no tokens.
 - `python test_llm.py` makes one tiny real call to check your key and connection.
 - `python scripts/safety_demo.py` runs each safety defense and prints PASS/FAIL. Mostly free; the classifier cases and one full
   kung pao chicken run make real calls (about 3 cents). Output: `logs/safety_demo_output.txt`.
@@ -118,7 +118,7 @@ Committed evidence files: `logs/safety_demo_output.txt`, `logs/token_report.csv`
 - This is not medical advice.
 - A run takes about 30 seconds.
 - Prices and costs are estimates from the course pricing slide (gpt-6-luna), not an invoice.
-- The Goal selector (for example lower sodium) is passed to the AI as context but is not enforced or verified by code, and the results page does not say whether the goal was met. Allergies and store are enforced by code; goals are not.
+- The Goal selector (for example lower sodium) is passed to the AI as context but is not enforced or verified by code, and the results page does not say whether the goal was met. Allergies, the store and the vegetarian, vegan and pescatarian preferences are enforced by code; goals and other preferences (halal, kosher) are not.
 - Nutrition differences between the original and the adapted dish mostly reflect ingredients that were left out or have no USDA entry, not a healthier recipe. Treat the comparison as a consistency check on the ingredient list, not as a health claim.
 - Allergies accept several selections; dietary preference and goal accept one choice each.
 - Vegetarian, vegan and pescatarian are checked by code with a keyword list, and a definite conflict triggers one substitution re-run (a conflict that remains is shown as not that diet). This is not a guarantee: items like kimchi, Worcestershire sauce and stock stay uncertain, and a vegetarian or vegan label never clears them. Any other preference (halal, kosher) is passed to the AI and is not verified.
