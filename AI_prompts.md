@@ -563,3 +563,15 @@ NEW SCREENSHOTS (in submission/screenshots/): safety_injection_v2.png, safety_ov
 DELIVERY
 Rebuild; show the page count before and after, the file size, every change made, and the images used for Figures 3, 7 and 8. Search the HTML for "Prompt", "[FILL", ".git" and "placeholder" and show the results. Confirm "(a) One real user test" appears exactly once. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Report revisions 4: figure legibility, before/after, left-out split". Don't push.
 ````
+
+## Report: demo replay note, cross-references
+
+````
+Small final edits to submission/report.html. Edit only the report, its build script and submission/ files; do NOT touch app code, data, tests or logs. Keep the page count at 14 or fewer and re-run the number cross-check.
+
+1. Safety demo wording: the re-run's output (logs/safety_demo_output.txt) has token counts identical to the earlier run (13,015 input, 2,996 cached, 3,722 output; guard calls 403 and 401), which suggests the provider replayed cached model responses. In section 6 and in the Figure 10 caption add one sentence: the demo script ran again and the code checks, including the new output check, ran on those replies, but the model replies were probably served from the provider's cache, so this is not a fresh sample of the model. Keep "19/19".
+2. Check every "Figure N" and "section N" cross-reference in the text against the current figure and section numbers (figures were removed and renumbered in the last revisions) and fix any mismatch. List what you changed.
+3. In the caption of the extreme-restriction screenshot, make sure the tokens cited are from the "This run" row (341 in, 67 out) and that no caption cites the "Session total" row.
+
+Rebuild, show the page count and file size, search the HTML for "[FILL", "Prompt" and ".git", follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Report: demo replay note, cross-references". Don't push.
+````
