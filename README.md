@@ -121,6 +121,7 @@ Committed evidence files: `logs/safety_demo_output.txt`, `logs/token_report.csv`
 - The Goal selector (for example lower sodium) is passed to the AI as context but is not enforced or verified by code, and the results page does not say whether the goal was met. Allergies and store are enforced by code; goals are not.
 - Nutrition differences between the original and the adapted dish mostly reflect ingredients that were left out or have no USDA entry, not a healthier recipe. Treat the comparison as a consistency check on the ingredient list, not as a health claim.
 - Allergies accept several selections; dietary preference and goal accept one choice each.
+- Vegetarian, vegan and pescatarian are checked by code with a keyword list, and a definite conflict triggers one substitution re-run (a conflict that remains is shown as not that diet). This is not a guarantee: items like kimchi, Worcestershire sauce and stock stay uncertain, and a vegetarian or vegan label never clears them. Any other preference (halal, kosher) is passed to the AI and is not verified.
 
 ## Safety in one paragraph
 

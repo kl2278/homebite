@@ -250,6 +250,7 @@ class OutputFacts:
     allowed_numbers: set[float]  # ingredient amounts, servings, numbers inside ingredient/product names
     confirmed_products: set[str]  # substitute products confirmed at this store (lowercase)
     vocabulary: set[str]  # lowercase words from the dish, cuisine, ingredients, products and stores
+    left_out: list[str] = field(default_factory=list)  # ingredients removed from the recipe: steps must not use them
 
 
 NUMBER = r"\d+(?:[.,]\d+)?[½¼¾]?|[½¼¾]"
@@ -282,7 +283,7 @@ def numbers_in(text: str) -> list[float]:
     return [to_number(t) for t in re.findall(NUMBER, text)]
 
 
-def check_output(parts: list[str], facts: OutputFacts, prompt_texts: tuple[str, ...] = ()) -> list[str]:
+def check_output(parts: list[str], facts: OutputFacts, prompt_texts: tuple[str, ...] = (), steps: list[str] | None = None) -> list[str]:
     """Return a list of violations in the Writer's text (empty list = OK)."""
     text = "\n".join(parts)
     lowered = text.lower()
@@ -318,6 +319,18 @@ def check_output(parts: list[str], facts: OutputFacts, prompt_texts: tuple[str, 
     if invented:
         violations.append("These numbers are not in the verified ingredient data and are not cooking times or temperatures: "
                           + ", ".join(f"{n:g}" for n in invented))
+
+    # 3b. The cooking steps must not use an ingredient that was left out ("skip the X" and "without X" are fine).
+    for name in facts.left_out if steps else []:
+        pattern = re.compile(rf"\b{re.escape(name.lower())}(?:s|es)?\b")
+        for step in steps:
+            lowered_step = step.lower()
+            used = [m for m in pattern.finditer(lowered_step)
+                    if not re.search(r"(skip|omit|leave out|leaving out|without|instead of|do not (add|use)|don't (add|use)|no)\W+(?:\w+\W+){0,3}$",
+                                     lowered_step[max(0, m.start() - 40):m.start()])]
+            if used:
+                violations.append(f"A cooking step uses the left-out ingredient {name}.")
+                break
 
     # 4. Products: only substitutes confirmed at this store.
     catalog_names = {i.product_name.lower() for i in tools._catalog()}

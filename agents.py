@@ -135,6 +135,7 @@ class Verified(BaseModel):
     adapted_nutrition: tools.RecipeNutrition
     comparison: dict[str, dict[str, float]]  # nutrient -> {original, adapted, change} per serving
     allergen_check: tools.AllergenCheck
+    diet_check: tools.DietCheck | None = None  # only when the student picked a dietary preference
 
 
 class SafetyCheck(BaseModel):
@@ -151,6 +152,8 @@ class PipelineResult(BaseModel):
     medical_context: bool = False  # show the "not medical advice" banner
     allergen_hard_stop: bool = False  # a definite allergen conflict remains: never present the recipe as safe
     hard_stop_conflicts: list[tools.AllergenConflict] = []
+    diet_hard_stop: bool = False  # a definite diet conflict remains: the recipe is shown as NOT <diet>
+    diet_stop_conflicts: list[tools.DietConflict] = []
     writer_path: str = ""  # first_try, regenerated or fallback
     safety_checks: list[SafetyCheck] = []
     clarifying_question: str | None = None
@@ -547,6 +550,15 @@ def verify(request: Request, analysis: DishAnalysis, plan: SubstitutionPlan, dep
                         f"all_clear={allergen_check.all_clear}"),
     ))
 
+    diet = next(iter(deps.dietary_preferences), "")
+    diet_check = tools.check_diet(adapted_for_allergens, diet) if diet else None
+    if diet_check:
+        calls.append(ToolCallTrace(
+            name="check_diet", arguments={"ingredients": len(adapted_for_allergens), "diet": diet, "enforced": diet_check.enforced},
+            result_summary=(f"conflicts={len(diet_check.conflicts)}; uncertain={len(diet_check.uncertain)}; all_clear={diet_check.all_clear}"
+                            if diet_check.enforced else "not verified by code: passed to the AI as text"),
+        ))
+
     comparison = {}
     for key in NUTRIENT_LABELS:
         before = original_nutrition.per_serving.get(key, 0.0)
@@ -557,7 +569,7 @@ def verify(request: Request, analysis: DishAnalysis, plan: SubstitutionPlan, dep
         original_ingredients=original, adapted_ingredients=adapted, substitutions=subs,
         omitted_from_adapted=omitted, unmatched_ingredients=unmatched,
         original_nutrition=original_nutrition, adapted_nutrition=adapted_nutrition,
-        comparison=comparison, allergen_check=allergen_check,
+        comparison=comparison, allergen_check=allergen_check, diet_check=diet_check,
     )
     return verified, calls
 
@@ -682,7 +694,8 @@ def output_facts(request: Request, verified: Verified, deps: RunDeps) -> safety.
     for name in names:
         numbers.update(safety.numbers_in(name))
     vocabulary = {w for name in names for w in re.findall(r"[a-z]+", name.lower())}
-    return safety.OutputFacts(allowed_numbers=numbers, confirmed_products=products, vocabulary=vocabulary)
+    return safety.OutputFacts(allowed_numbers=numbers, confirmed_products=products, vocabulary=vocabulary,
+                              left_out=list(verified.omitted_from_adapted))
 
 
 def fallback_answer(request: Request, verified: Verified) -> WriterOutput:
@@ -704,19 +717,29 @@ def fallback_answer(request: Request, verified: Verified) -> WriterOutput:
     )
 
 
-def _conflicting_originals(verified: Verified, analysis: DishAnalysis) -> dict[str, str]:
-    """Map the original ingredient names behind each allergen conflict to the allergen."""
+def _originals_for(verified: Verified, analysis: DishAnalysis, items: list[tuple[str, str]]) -> dict[str, str]:
+    """Map the original ingredient names behind conflicts. items: (conflicting ingredient, reason label)."""
     found = {}
     lines = {line.name: line for line in verified.adapted_ingredients}
     known = {i.name.lower() for i in analysis.ingredients}
-    for conflict in verified.allergen_check.conflicts:
-        line = lines.get(conflict.ingredient)
-        name = conflict.ingredient
+    for ingredient, label in items:
+        line = lines.get(ingredient)
+        name = ingredient
         if line and line.label.startswith("substitute for "):
             name = line.label[len("substitute for "):].split(", from ")[0]
         if name.lower() in known:
-            found[name.lower()] = conflict.allergen
+            found[name.lower()] = label
     return found
+
+
+def _conflicting_originals(verified: Verified, analysis: DishAnalysis) -> dict[str, str]:
+    """Map the original ingredient names behind each allergen conflict to the allergen."""
+    return _originals_for(verified, analysis, [(c.ingredient, c.allergen) for c in verified.allergen_check.conflicts])
+
+
+def _enforced_diet_conflicts(verified: Verified) -> list[tools.DietConflict]:
+    check = verified.diet_check
+    return check.conflicts if check and check.enforced else []
 
 
 def run_pipeline(user_text: str, settings: RunDeps, progress_callback: Callable[[str], None] | None = None,
@@ -854,7 +877,7 @@ def run_pipeline(user_text: str, settings: RunDeps, progress_callback: Callable[
                 return SubstitutionPlan(substitutions=[])
             lines = []
             for i in hard:
-                flag = f" [CONFLICTING with the student's {forced[i.name.lower()].replace('_', ' ')} allergy: needs a safe substitute or removal]" if i.name.lower() in forced else ""
+                flag = f" [CONFLICTING with the student's {forced[i.name.lower()]}: needs a safe substitute or removal]" if i.name.lower() in forced else ""
                 lines.append(f"- {i.name} (role: {i.role}, {i.grams_per_serving} g per serving){flag}")
             prompt = (f"{trusted}\n<dish_request>\nDish: {request.dish_name} ({request.cuisine_origin}).\n"
                       "Find substitutes for these ingredients:\n" + "\n".join(lines) + "\n</dish_request>")
@@ -882,33 +905,59 @@ def run_pipeline(user_text: str, settings: RunDeps, progress_callback: Callable[
         progress("Verifying nutrition and allergens")
         verified = run_verifier(plan, analysis, "verifier")
 
-        # 4b. Allergen hard stop: one re-run of the substitution stage, then a red box if a conflict remains
-        if verified.allergen_check.conflicts:
-            forced = _conflicting_originals(verified, analysis)
-            names = ", ".join(f"{c.ingredient} ({c.allergen})" for c in verified.allergen_check.conflicts)
-            check("Allergen check", "warning", f"conflict found: {names}; re-running substitution once")
+        # 4b. Allergen and diet conflicts: one re-run of the substitution stage, then a red box if a conflict remains
+        allergen_conf = list(verified.allergen_check.conflicts)
+        diet_conf = _enforced_diet_conflicts(verified)
+        if allergen_conf or diet_conf:
+            forced = {n: f"{a.replace('_', ' ')} allergy" for n, a in _conflicting_originals(verified, analysis).items()}
+            forced.update({n: f"{d} diet" for n, d in _originals_for(verified, analysis, [(c.ingredient, c.diet) for c in diet_conf]).items()})
+            if allergen_conf:
+                names = ", ".join(f"{c.ingredient} ({c.allergen})" for c in allergen_conf)
+                check("Allergen check", "warning", f"conflict found: {names}; re-running substitution once")
+            if diet_conf:
+                names = ", ".join(f"{c.ingredient} ({c.reason})" for c in diet_conf)
+                check("Diet check", "warning", f"conflict found: {names}; re-running substitution once")
             if forced:
-                progress("Replacing ingredients that conflict with your allergy")
+                progress("Replacing ingredients that conflict with your allergy or diet")
                 forced_analysis = analysis.model_copy(deep=True)
                 for ingredient in forced_analysis.ingredients:
                     if ingredient.name.lower() in forced:
                         ingredient.hard_to_find_abroad = True
                 plan2 = substitute(forced_analysis, forced, "substitution_rerun")
                 second = run_verifier(plan2, forced_analysis, "verifier_rerun")
-                if not second.allergen_check.conflicts:
+                if not second.allergen_check.conflicts:  # an allergen conflict is never traded for a diet fix
                     verified, plan = second, plan2
                     result.substitution_plan = plan2
-                    check("Allergen check (after re-run)", "passed", "the conflicting ingredients were replaced or removed")
+        if allergen_conf:
             if verified.allergen_check.conflicts:
                 result.allergen_hard_stop = True
                 result.hard_stop_conflicts = verified.allergen_check.conflicts
                 check("Allergen check (after re-run)", "blocked", "a definite conflict remains: recipe shown as NOT safe")
+            else:
+                check("Allergen check (after re-run)", "passed", "the conflicting ingredients were replaced or removed")
         elif settings.allergies:
             uncertain = len(verified.allergen_check.uncertain)
             check("Allergen check", "warning" if uncertain else "passed",
                   f"no conflicts; {uncertain} ingredient(s) could not be confirmed, check the label" if uncertain else "no conflicts, all ingredients identified")
         else:
             check("Allergen check", "skipped", "no allergies selected")
+
+        diet_final = verified.diet_check
+        if diet_final and diet_final.enforced:
+            left = _enforced_diet_conflicts(verified)
+            if left:
+                result.diet_hard_stop = True
+                result.diet_stop_conflicts = left
+                check("Diet check (after re-run)" if diet_conf else "Diet check", "blocked",
+                      f"a definite conflict remains: recipe shown as NOT {diet_final.diet} as written")
+            elif diet_conf:
+                check("Diet check (after re-run)", "passed", "the conflicting ingredients were replaced or removed")
+            elif diet_final.uncertain:
+                check("Diet check", "warning", f"no conflicts; {len(diet_final.uncertain)} ingredient(s) could not be confirmed, check the label")
+            else:
+                check("Diet check", "passed", f"no conflicts with {diet_final.diet}, nothing uncertain")
+        elif diet_final:
+            check("Diet check", "skipped", f"{diet_final.diet} is passed to the AI as text and is not verified by code")
         result.verified = verified
 
         # 5. Writer: gets ingredients and substitutions, but no nutrition numbers
@@ -922,6 +971,12 @@ def run_pipeline(user_text: str, settings: RunDeps, progress_callback: Callable[
             "no_health_claims": result.medical_context,
             "allergy_conflicts": [f"{c.ingredient} ({c.allergen})" for c in result.hard_stop_conflicts],
         }
+        if verified.diet_check and verified.diet_check.enforced:
+            brief["diet"] = verified.diet_check.diet
+            brief["diet_conflicts"] = [f"{c.ingredient} ({c.reason})" for c in verified.diet_check.conflicts]
+            brief["diet_uncertain"] = [u.ingredient for u in verified.diet_check.uncertain]
+            brief["diet_note"] = ("Never use or mention in the steps any ingredient listed under left_out. If diet_conflicts is not empty, "
+                                  f"do not say or imply the dish is {verified.diet_check.diet}; if diet_uncertain is not empty, do not claim it is certain.")
         facts = output_facts(request, verified, settings)
         progress("Writing your recipe")
         base_prompt = f"<brief>\n{brief}\n</brief>"
@@ -941,7 +996,8 @@ def run_pipeline(user_text: str, settings: RunDeps, progress_callback: Callable[
                 continue
             writer_usage = entry if writer_usage is None else {**entry, **_merge_usage(writer_usage, entry)}
             candidate = run.output
-            violations = safety.check_output([candidate.intro, candidate.taste_differences, *candidate.steps], facts, tuple(PROMPT_TEXTS))
+            violations = safety.check_output([candidate.intro, candidate.taste_differences, *candidate.steps], facts, tuple(PROMPT_TEXTS),
+                                             steps=candidate.steps)
             if not violations:
                 writer_output, result.writer_path = candidate, "first_try" if attempt == 1 else "regenerated"
                 break

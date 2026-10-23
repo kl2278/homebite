@@ -453,3 +453,38 @@ MY INPUTS (any slot still containing [FILL ...] means "not provided": do not inv
 - User test: a friend, Alex, tried HomeBite in person on my laptop and agreed to be quoted by first name. Dish: his mom's potato beef stew; store Whole Foods; no allergies selected; goal "lower sodium" selected; 2 servings. Result: run time 18 s; 5,458 input tokens, 0 cached, 1,776 output tokens; 5 requests; estimated cost $0.0015. No substitutions were needed (0 substitutes, 0 items left out). Paraphrase of his feedback (do NOT put in quotation marks): he thought it was a cool concept, the instructions were easy to follow, and the ingredient list was clear. His improvement ideas: (1) allow multiple selections for allergens, dietary preferences and goals, for example low sodium and low calorie together (the allergy box already allows several choices, so he may not have noticed); (2) show pictures of the dishes; (3) turn the input into a chatbot that talks with you about the dish. Optional exact words from him: "This is fun to use and I look forward to recreating my mom's dishes using this!"
 - Fresh-clone check run (source: Claude Code's Prompt 9 report, not in the repo logs; label it that way): Vietnamese chicken pho, Aldi, fish allergy; 44 s; 16,373 input tokens (4,328 cached, 5,406 cache-write), 3,794 output tokens, 11 requests, about $0.0033. The first pass flagged fish sauce and the substitution re-run removed it. The same check measured about 35 seconds from git clone to a running page.
 ````
+
+## Fix: enforce vegetarian/vegan/pescatarian by code
+
+Note: this was found by a head-to-head test with a general chatbot (a vegetarian preference only reached the AI as text, so pork belly stayed in the recipe).
+
+````
+Follow-up from a head-to-head test with a general chatbot. I ran HomeBite with Walmart, dietary preference "vegetarian", goal "lower sodium", 2 servings, text "Korean kimchi jjigae". The result contained 120 g of pork belly (kept as a "common item"), the first cooking step browns the pork belly, and only the Writer's intro said "One note: the list includes pork belly, so this version isn't vegetarian." So dietary preference is passed to the AI as text but nothing in code enforces it. Allergies are enforced by code (check, one re-run, hard stop); the same should apply to the diets the app offers. Keep the change small and in the same style as the allergen path.
+
+1. Diagnose first, no code changes yet: read how dietary_preferences travels through run_pipeline (Intake, Analyst, Substitution, Verifier, Writer), list the dietary preference options the sidebar offers, and tell me in 5 lines why pork belly passed through. Then continue.
+
+2. tools.py: add check_diet(ingredients, diet) next to check_allergens, reusing its whole-word matching and its definite/uncertain structure.
+ - vegetarian: definite conflicts for meat, poultry, fish and shellfish words (for example pork, beef, bacon, ham, chicken, turkey, lamb, duck, sausage, pork belly, anchovy, fish sauce, shrimp, oyster sauce, gelatin, lard, bonito). Reuse existing allergen words for fish and shellfish.
+ - vegan: the vegetarian list plus dairy, egg and honey words (reuse the existing dairy and egg lists).
+ - pescatarian (only if the sidebar offers it): meat and poultry words are conflicts; fish and shellfish are allowed.
+ - "uncertain" (check the label, not a conflict) for ingredients that often contain animal products: kimchi (often fish sauce or shrimp), Worcestershire sauce, stock, broth and bouillon without the word vegetable, curry paste, and similar. A "vegetarian" or "vegan" label does not clear an item; it stays uncertain.
+ - Any other preference the sidebar offers (for example halal, kosher, low-carb) must NOT claim enforcement: it stays "passed to the AI, not verified".
+ - No false positives on look-alikes: eggplant, coconut milk, soy milk, oyster mushroom, peanut butter, butternut. Add tests for each.
+
+3. agents.py: in the Verifier, run check_diet on the adapted list when the preference is vegetarian, vegan or pescatarian. A definite diet conflict triggers the SAME single substitution re-run as an allergen conflict (conflicting ingredients forced into the "needs a substitute or removal" list; tell that agent the diet). If a conflict remains after the re-run, show the recipe as "NOT <diet> as written", like the allergen hard stop. The Analyst must still NOT be told the diet, so violations surface to code. Pass diet conflicts and uncertain items to the Writer brief so its steps never use a removed ingredient. Check how the Writer's steps are validated against the final ingredient list; if steps can still mention a left-out ingredient, add a code check for that and use the existing regenerate-once-then-template path.
+
+4. app.py: the UI freeze applies except for this. When a diet is selected, show a "Diet check" box in the same place as the allergen box: green only with no conflicts and no uncertain items; yellow for uncertain items (for example "kimchi: traditional kimchi often contains fish sauce or shrimp; check the label"); red if a conflict remains. Show nothing new when the preference is "none". Add the diet check to the "Safety checks" list in the trace. Make no other visible change.
+
+5. Tests (offline, fake model): vegetarian with pork belly -> conflict -> re-run -> removed; conflict remains -> red state; vegan flags milk, egg and honey; vegetarian does not flag tofu, mushrooms or coconut milk; kimchi -> uncertain; preference "none" -> output identical to before; steps never mention a left-out ingredient. All 188 existing tests must still pass.
+
+6. Evidence, at most 2 live runs:
+ a. Offline before/after (free): run the diet check on the saved results in logs/measurement/results/ and tests/fixtures. Confirm that dishes without a diet preference are unchanged, and list every ingredient flagged on the vegetarian ratatouille runs (d08) as a false-alarm check.
+ b. ONE live run with exactly my earlier settings (Walmart, vegetarian, goal lower sodium, 2 servings, text "Korean kimchi jjigae"). Show whether pork belly is flagged, removed and absent from the steps, what the student sees, and the tokens, time and cost. If it returns very fast with tokens identical to an earlier run, say so.
+ c. Write the before/after to logs/diet_fix_check.md, generated by scripts/diet_fix_check.py (add a .gitignore exception so it is committed). Do not edit any existing measurement file.
+
+7. README: in Known limits state accurately: vegetarian, vegan (and pescatarian if offered) are checked by code with a keyword list and trigger one substitution re-run; this is not a guarantee, and items like kimchi stay "uncertain"; any other preference is passed to the AI and not verified; the Goal selector is not verified. Keep the other bullets.
+
+8. Follow the prompt-log rule from CLAUDE.md (note in one line that this was found by a head-to-head test with a general chatbot), confirm gpt-6-luna is still the only model name and .env is not staged, and commit "Fix: enforce vegetarian/vegan/pescatarian by code after head-to-head test". Don't push.
+
+Show me: the diagnosis, the sidebar options, the keyword lists, the test results, the offline before/after, the live-run result (what the student sees), the contents of diet_fix_check.md, and git status. Then stop. If the fix needs changes outside the files named above, or breaks existing tests in a non-trivial way, stop and tell me instead of continuing.
+````

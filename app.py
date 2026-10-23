@@ -174,13 +174,14 @@ def money(value: float) -> str:
 
 def render_ingredients(result: PipelineResult, inputs: dict) -> None:
     request, verified = result.request, result.verified
-    conflicts = {c.ingredient: c.allergen.replace("_", " ") for c in result.hard_stop_conflicts}
+    conflicts = {c.ingredient: f"contains {c.allergen.replace('_', ' ')}" for c in result.hard_stop_conflicts}
+    conflicts.update({c.ingredient: f"not {c.diet}" for c in result.diet_stop_conflicts})
     st.subheader("Ingredients")
     st.caption(f"For {request.servings} servings")
     for line in verified.adapted_ingredients:
         grams = round(line.grams_per_serving * request.servings, 1)
         if line.name in conflicts:
-            st.markdown(f"- :red[**{line.name}: about {grams:g} g (contains {conflicts[line.name]})**]")
+            st.markdown(f"- :red[**{line.name}: about {grams:g} g ({conflicts[line.name]})**]")
         else:
             st.markdown(f"- {line.name}: about {grams:g} g")
     for name in verified.omitted_from_adapted:
@@ -229,6 +230,23 @@ def render_allergens(result: PipelineResult, inputs: dict) -> None:
     if check.all_clear:
         st.success(f"No {', '.join(allergies)} found in any ingredient.")
     st.caption("Based on catalog tags and a keyword list, not a guarantee.")
+
+
+def render_diet(result: PipelineResult) -> None:
+    check = result.verified.diet_check
+    if check is None:  # no dietary preference selected: nothing to show
+        return
+    st.subheader("Diet check")
+    if not check.enforced:
+        st.info(f"{check.diet.capitalize()} is passed to the AI as text. HomeBite does not verify it in code, so please check the recipe yourself.")
+        return
+    if check.conflicts:
+        st.error(f"Not {check.diet}:\n" + "\n".join(f"- {c.ingredient}: {c.reason}" for c in check.conflicts))
+    if check.uncertain:
+        st.warning(f"Couldn't confirm these are {check.diet}. Check the label.\n" + "\n".join(f"- {u.ingredient}: {u.reason}" for u in check.uncertain))
+    if check.all_clear:
+        st.success(f"No ingredient conflicts with {check.diet}.")
+    st.caption("Based on a keyword list, not a guarantee.")
 
 
 def render_nutrition(result: PipelineResult) -> None:
@@ -348,8 +366,16 @@ def render_result(result: PipelineResult, inputs: dict, saved_example: bool, run
             + "; ".join(f"**{c.ingredient}** ({c.allergen.replace('_', ' ')})" for c in result.hard_stop_conflicts)
             + ". Leave these ingredients out, or choose a different recipe."
         )
+    elif result.diet_hard_stop:
+        st.header(f"{request.dish_name}: NOT {result.diet_stop_conflicts[0].diet} as written")
     else:
         st.header(f"{request.dish_name} at {inputs['store']}")
+    if result.diet_hard_stop:
+        st.error(
+            f"This is not {result.diet_stop_conflicts[0].diet} as written. It contains: "
+            + "; ".join(f"**{c.ingredient}** ({c.reason})" for c in result.diet_stop_conflicts)
+            + ". Leave these ingredients out, or choose a different recipe."
+        )
     if result.writer_path == "fallback":
         st.info("This is a simplified version: the full recipe text didn't pass our safety checks, "
                 "so only the verified ingredients and substitutions are shown.")
@@ -368,6 +394,7 @@ def render_result(result: PipelineResult, inputs: dict, saved_example: bool, run
 
     render_substitutions(result, inputs)
     render_allergens(result, inputs)
+    render_diet(result)
     render_nutrition(result)
     render_trace(result)
     render_usage(result, saved_example)

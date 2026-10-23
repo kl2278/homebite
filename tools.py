@@ -467,3 +467,116 @@ def check_allergens(ingredients: list[str | CatalogItem], allergens: list[str]) 
         conflicts=conflicts, uncertain=uncertain, cleared=cleared,
         all_clear=not conflicts and not uncertain and not invalid, invalid_allergens=invalid,
     )
+
+
+# ---------------------------------------------------------------- diet check (vegetarian, vegan, pescatarian)
+
+ENFORCED_DIETS = ("vegetarian", "vegan", "pescatarian")
+
+
+class DietConflict(BaseModel):
+    ingredient: str
+    diet: str
+    reason: str
+
+
+class DietCheck(BaseModel):
+    diet: str
+    enforced: bool  # False: the preference is passed to the AI and NOT verified by code
+    conflicts: list[DietConflict]
+    uncertain: list[UncertainIngredient]  # often contains animal products: check the label
+    all_clear: bool  # True only for an enforced diet with no conflicts AND nothing uncertain
+
+
+MEAT_WORDS = [
+    "pork", "pork belly", "beef", "bacon", "ham", "chicken", "turkey", "lamb", "mutton", "duck", "goose", "veal", "venison",
+    "sausage", "salami", "pepperoni", "prosciutto", "pancetta", "chorizo", "steak", "meatball", "brisket", "ribs", "oxtail", "liver",
+    "foie gras", "meat", "gelatin", "gelatine", "lard", "tallow", "suet", "bone broth", "pork rind",
+]
+VEGETARIAN_EXTRA = ALLERGEN_KEYWORDS["fish"] + ALLERGEN_KEYWORDS["shellfish"] + ["bonito", "katsuobushi", "fish sauce", "oyster sauce", "shrimp paste"]
+VEGAN_EXTRA = ALLERGEN_KEYWORDS["dairy"] + ALLERGEN_KEYWORDS["eggs"] + ["honey", "beeswax"]
+# Often contain animal products, but not always: "uncertain", check the label. (Name -> why.)
+UNCERTAIN_MEAT = {
+    "stock": "stock is often made from meat", "broth": "broth is often made from meat", "bouillon": "bouillon often contains meat",
+    "curry roux": "curry roux can contain beef fat", "refried beans": "refried beans are often made with lard",
+    "marshmallow": "marshmallows usually contain gelatin",
+}
+UNCERTAIN_FISH_OR_MEAT = {
+    "kimchi": "traditional kimchi often contains fish sauce or shrimp", "worcestershire": "Worcestershire sauce usually contains anchovies",
+    "curry paste": "curry paste often contains shrimp paste or fish sauce", "dashi": "dashi is usually made with bonito (fish)",
+    "miso": "miso soup and some miso are made with fish stock", "pesto": "pesto often contains parmesan made with animal rennet",
+    "caesar": "Caesar dressing usually contains anchovies",
+}
+# Look-alikes that must not be flagged (removed from the name before matching).
+DIET_SAFE_PHRASES = [
+    "oyster mushroom", "coconut milk", "coconut cream", "soy milk", "soymilk", "almond milk", "oat milk", "rice milk", "cashew milk",
+    "plant milk", "peanut butter", "almond butter", "cashew butter", "nut butter", "seed butter", "sunflower butter", "cocoa butter",
+    "shea butter", "cream of tartar", "crab apple", "beef tomato", "lamb's lettuce", "meat substitute", "meat alternative",
+    "plant-based meat", "vegetable broth", "vegetable stock", "vegetable bouillon", "veggie broth", "veggie stock", "mushroom broth",
+    "mushroom stock",
+]
+DIET_LABELS = re.compile(r"\b(vegetarian|vegan|plant[- ]based|meat[- ]free)\b")
+
+
+def _diet_words(diet: str) -> list[str]:
+    words = list(MEAT_WORDS)
+    if diet in ("vegetarian", "vegan"):
+        words += VEGETARIAN_EXTRA
+    if diet == "vegan":
+        words += VEGAN_EXTRA
+    return words
+
+
+def check_diet(ingredients: list[str | CatalogItem], diet: str) -> DietCheck:
+    """Check ingredients against vegetarian, vegan or pescatarian by keyword list (not a guarantee).
+
+    A keyword hit is a definite conflict. Items that often contain animal products (kimchi, stock, Worcestershire
+    sauce, ...) are "uncertain": check the label. A "vegetarian" or "vegan" label never clears an item: it stays
+    uncertain. Any other preference (halal, kosher, ...) is NOT verified: enforced=False.
+    """
+    diet = (diet or "").lower()
+    if diet not in ENFORCED_DIETS:
+        return DietCheck(diet=diet, enforced=False, conflicts=[], uncertain=[], all_clear=False)
+
+    words = _diet_words(diet)
+    uncertain_words = dict(UNCERTAIN_MEAT)
+    if diet in ("vegetarian", "vegan"):
+        uncertain_words.update(UNCERTAIN_FISH_OR_MEAT)
+    conflicts: list[DietConflict] = []
+    uncertain: list[UncertainIngredient] = []
+    for ingredient in ingredients:
+        if isinstance(ingredient, CatalogItem):
+            name = ingredient.product_name
+            tags = set(ingredient.allergen_tags)
+            tag_hits = []
+            if diet in ("vegetarian", "vegan"):
+                tag_hits += sorted(tags & {"fish", "shellfish"})
+            if diet == "vegan":
+                tag_hits += sorted(tags & {"dairy", "eggs"})
+            for tag in tag_hits:
+                conflicts.append(DietConflict(ingredient=name, diet=diet, reason=f"catalog tag: {tag}"))
+        else:
+            name = ingredient
+        text = name.lower()
+        for phrase in DIET_SAFE_PHRASES:
+            text = text.replace(phrase, " ")
+        hit_words = [w for w in words if _word_in(text, w)]
+        if hit_words and not isinstance(ingredient, CatalogItem):
+            if DIET_LABELS.search(text):  # a label never clears an item
+                uncertain.append(UncertainIngredient(ingredient=name, reason="labelled vegetarian/vegan, but check the label"))
+            else:
+                conflicts.append(DietConflict(ingredient=name, diet=diet, reason=f"contains {hit_words[0]}"))
+            continue
+        if isinstance(ingredient, CatalogItem) and hit_words:
+            if not any(c.ingredient == name for c in conflicts):  # the catalog tag may already have flagged it
+                conflicts.append(DietConflict(ingredient=name, diet=diet, reason=f"name contains {hit_words[0]}"))
+            continue
+        if any(c.ingredient == name for c in conflicts):
+            continue
+        for word, why in uncertain_words.items():
+            if _word_in(text, word):
+                if word in ("stock", "broth", "bouillon") and re.search(r"\b(vegetable|veggie|mushroom)\b", text):
+                    continue
+                uncertain.append(UncertainIngredient(ingredient=name, reason=f"{why}; check the label"))
+                break
+    return DietCheck(diet=diet, enforced=True, conflicts=conflicts, uncertain=uncertain, all_clear=not conflicts and not uncertain)
