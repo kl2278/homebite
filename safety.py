@@ -62,6 +62,7 @@ class ScreenResult(BaseModel):
     medical_context: bool = False
     rule: str = ""
     reason: str = ""
+    other_allergens: list[str] = []  # allergies named in the text that HomeBite has no check for (kiwi, mango, ...)
 
 
 class GuardUnavailable(Exception):
@@ -134,7 +135,94 @@ def log_safety_event(category: str, caught_by: str, text: str, path: Path | None
         f.write(json.dumps(entry) + "\n")
 
 
-def screen_input(text: str, classify: Callable[[str], GuardVerdict] | None, log_path: Path | None = None) -> ScreenResult:
+# ---- allergies stated in the text (free, zero tokens)
+# The sidebar is the only place allergies are enforced. If the text says "I am allergic to peanuts" but peanuts are not
+# selected, the request stops before any AI call and asks the student to select it.
+
+ALLERGEN_LABELS = {  # tools.py key -> the label the sidebar Allergies box shows
+    "peanuts": "peanuts", "tree_nuts": "tree nuts", "shellfish": "shellfish", "fish": "fish", "soy": "soy",
+    "wheat_gluten": "wheat/gluten", "eggs": "eggs", "dairy": "dairy", "sesame": "sesame",
+}
+# Words that name an allergen: the ingredient keywords from tools.py, plus a few words people use for the allergy itself.
+# "coconut" is left out on purpose (it is not a tree nut for this check); nutmeg, eggplant and butternut never match
+# because matching is by whole word.
+_TEXT_EXTRA = {"wheat_gluten": ["gluten", "celiac", "coeliac"], "dairy": ["dairy", "lactose"], "shellfish": ["shell fish"]}
+TEXT_ALLERGEN_WORDS = {
+    cat: sorted({w for w in tools.ALLERGEN_KEYWORDS[cat] if w != "coconut"} | set(_TEXT_EXTRA.get(cat, [])), key=len, reverse=True)
+    for cat in ALLERGEN_LABELS
+}
+# Allergies HomeBite has no check for. Short and conservative; only strong triggers count for these.
+OTHER_ALLERGENS = ["kiwi", "mango", "mustard", "celery", "lupin", "lupine", "corn", "banana", "strawberry", "avocado"]
+
+STRONG_TRIGGER = (r"allergic|allergy|allergies|allergen|intoleran(?:t|ce)|celiac|coeliac|anaphyla\w*"
+                  r"|(?:can't|cant|cannot|can not) (?:eat|have)|reacts? to|reaction to")
+WEAK_TRIGGER = r"without|free of|avoid(?:ing)?|don't want|do not want|free(?![- ]range)"  # "gluten-free" is one word, handled below
+TRIGGER_WINDOW = 8  # a trigger and an allergen word must be this close (in words), in the same sentence
+NO_WINDOW = 2  # "no peanuts": the allergen follows "no" directly
+
+_NOT_DAIRY = re.compile(r"\bcoconut (?:milk|cream|water|oil|butter)\b|\bcocoa butter\b|\bshea butter\b")
+_WORD = re.compile(r"[a-z0-9]+(?:['\-][a-z0-9]+)*")
+_STRONG_RE = re.compile(rf"\b(?:{STRONG_TRIGGER})\b")
+_WEAK_RE = re.compile(rf"\b(?:{WEAK_TRIGGER})\b")
+_NO_RE = re.compile(r"\bno\b")
+_ALLERGEN_RES = {cat: re.compile(r"\b(?:" + "|".join(re.escape(w) for w in words) + r")(?:s|es)?\b") for cat, words in TEXT_ALLERGEN_WORDS.items()}
+_OTHER_RE = re.compile(r"\b(?:" + "|".join(OTHER_ALLERGENS) + r")s?\b")
+
+
+def allergens_in_text(text: str) -> tuple[list[str], list[str]]:
+    """Allergy or avoidance statements in the text: (categories among the nine, other allergens named).
+
+    A trigger word ("allergic", "can't eat", "without", "-free", "no") and an allergen word must be close together
+    in the same sentence. A dish name that only contains an allergen word ("pad thai with shrimp") is not a statement.
+    """
+    found: dict[str, None] = {}
+    others: dict[str, None] = {}
+    text = _NOT_DAIRY.sub("coconut", text.lower().replace("’", "'"))  # coconut milk is not dairy
+    for sentence in re.split(r"[.!?;\n]+", text):
+        words = [(m.start(), m.group()) for m in _WORD.finditer(sentence)]
+        if not words:
+            continue
+
+        def index_at(pos: int) -> int:
+            return max(i for i, (start, _) in enumerate(words) if start <= pos)
+
+        strong = [index_at(m.start()) for m in _STRONG_RE.finditer(sentence)]
+        weak = [index_at(m.start()) for m in _WEAK_RE.finditer(sentence)] + [i for i, (_, w) in enumerate(words) if w.endswith("-free")]
+        no_words = [index_at(m.start()) for m in _NO_RE.finditer(sentence)]
+        close = lambda at, triggers: any(abs(at - t) <= TRIGGER_WINDOW for t in triggers)  # noqa: E731
+        for cat, pattern in _ALLERGEN_RES.items():
+            for m in pattern.finditer(sentence):
+                at = index_at(m.start())
+                if close(at, strong + weak) or any(0 < at - t <= NO_WINDOW for t in no_words):
+                    found[cat] = None
+        for m in _OTHER_RE.finditer(sentence):
+            if close(index_at(m.start()), strong):
+                others[m.group().removesuffix("s")] = None
+    return [c for c in ALLERGEN_LABELS if c in found], list(others)
+
+
+def _join(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def allergy_text_screen(text: str, selected: list[str], log_path: Path | None = None) -> ScreenResult:
+    """Free rule: stop (before any AI call) if the text names an allergen that is not selected in the sidebar."""
+    mentioned, others = allergens_in_text(text)
+    missing = [ALLERGEN_LABELS[c] for c in mentioned if c not in selected]
+    if missing:
+        log_safety_event("allergy_in_text", "rule", text, log_path)
+        message = (f"You mentioned {_join(missing)} as an allergy or something to avoid. HomeBite only checks the allergies "
+                   f"selected in the sidebar. Please select {_join(missing)} under Allergies, then describe your dish again.")
+        return ScreenResult(allowed=False, category="allergy_in_text", caught_by="rule", message=message, rule="allergy_in_text")
+    return ScreenResult(allowed=True, category="ok", caught_by="none", other_allergens=others)
+
+
+def other_allergen_warning(others: list[str]) -> str:
+    return f"You mentioned an allergy to {_join(others)}. HomeBite cannot check for it. Please check every ingredient and label yourself."
+
+
+def screen_input(text: str, classify: Callable[[str], GuardVerdict] | None, log_path: Path | None = None,
+                 allergies: list[str] | None = None) -> ScreenResult:
     """Check the student's text before any agent runs: length, free rules, then one cheap classifier call."""
 
     def blocked(category: str, caught_by: str, key: str, **extra) -> ScreenResult:
@@ -151,8 +239,15 @@ def screen_input(text: str, classify: Callable[[str], GuardVerdict] | None, log_
         rule, key = hit
         return blocked("injection", "rule", key, rule=rule)
 
+    other_allergens: list[str] = []
+    if allergies is not None:  # the sidebar selection; None means "do not check allergies in the text"
+        screened = allergy_text_screen(text, allergies, log_path)
+        if not screened.allowed:
+            return screened
+        other_allergens = screened.other_allergens
+
     if classify is None:
-        return ScreenResult(allowed=True, category="ok", caught_by="none")
+        return ScreenResult(allowed=True, category="ok", caught_by="none", other_allergens=other_allergens)
     try:
         verdict = classify(text)
     except LimitReached:
@@ -163,7 +258,7 @@ def screen_input(text: str, classify: Callable[[str], GuardVerdict] | None, log_
     if verdict.category in ("injection", "off_topic", "medical_advice", "extreme_restriction"):
         return blocked(verdict.category, "classifier", verdict.category, reason=verdict.reason)
     return ScreenResult(allowed=True, category=verdict.category, caught_by="classifier",
-                        medical_context=verdict.category == "medical_context", reason=verdict.reason)
+                        medical_context=verdict.category == "medical_context", reason=verdict.reason, other_allergens=other_allergens)
 
 
 # ================================================================ usage caps

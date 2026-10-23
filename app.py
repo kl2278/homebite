@@ -15,7 +15,8 @@ import pandas as pd
 import streamlit as st
 
 import usage
-from agents import COMMON_LABEL, NUTRIENT_LABELS, PipelineResult, RunDeps, load_example, run_pipeline
+import safety
+from agents import COMMON_LABEL, NUTRIENT_LABELS, PipelineResult, RunDeps, SafetyCheck, StageTrace, load_example, run_pipeline
 from llm import api_key_is_set
 from safety import SessionLimits
 
@@ -47,6 +48,7 @@ ss.setdefault("elapsed", None)  # seconds the last live run took
 ss.setdefault("limits", SessionLimits())  # rate limit and token counters for this browser session
 ss.setdefault("session_usage", {k: 0 for k in USAGE_KEYS})
 ss.setdefault("dish_text", "")
+ss.setdefault("other_allergens", [])  # allergies named in the text that HomeBite cannot check
 
 
 # ================================================================ running the pipeline
@@ -66,6 +68,20 @@ def friendly_error(error: Exception) -> str:
 def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None:
     """Run the pipeline once (paid LLM calls) and keep everything in session_state."""
     ss.error, ss.clarify = None, None
+    # Free rule, before any AI call: an allergy named in the text must also be selected in the sidebar.
+    screen = safety.allergy_text_screen(text, inputs["allergies"])
+    ss.other_allergens = screen.other_allergens
+    if not screen.allowed:
+        ss.result = PipelineResult(
+            status="blocked", message=screen.message, block_category=screen.category,
+            safety_checks=[SafetyCheck(name="Input rules", status="blocked", detail=f"{screen.category} ({screen.rule})"),
+                           SafetyCheck(name="Input classifier (guard)", status="skipped", detail="not needed, the free rules already decided")],
+            trace=[StageTrace(stage="input_screen", input_summary=f"{len(text)} characters", output=screen.model_dump(),
+                              note="Blocked before any agent ran.")],
+            usage_total={k: 0 for k in USAGE_KEYS})
+        ss.inputs, ss.elapsed = inputs, 0.0
+        st.rerun()
+        return
     status = st.status("Starting...", expanded=True)
     status.caption("A full run usually takes about 30 seconds.")
     started = time.time()
@@ -88,6 +104,9 @@ def run_live(text: str, inputs: dict, diet: list[str], goals: list[str]) -> None
         st.rerun()
         return
 
+    if ss.other_allergens:
+        result.safety_checks.append(SafetyCheck(name="Other allergy in text", status="warning",
+                                                detail=safety.other_allergen_warning(ss.other_allergens)))
     ss.result, ss.inputs, ss.elapsed = result, inputs, round(time.time() - started, 1)
     for key in USAGE_KEYS:
         ss.session_usage[key] += result.usage_total.get(key, 0)
@@ -406,6 +425,8 @@ else:
     shown, shown_inputs, shown_seconds = ss.result, ss.inputs, ss.elapsed
 if shown is not None and shown.medical_context:
     st.info("HomeBite doesn't give medical advice; check with a registered dietitian.")
+if shown is not None and shown.status == "complete" and ss.other_allergens and not use_fixture:
+    st.warning(safety.other_allergen_warning(ss.other_allergens))
 if shown is not None and shown.status == "blocked":
     st.info(shown.message)  # a friendly message, not an error
 elif shown is not None and shown.status == "stopped":

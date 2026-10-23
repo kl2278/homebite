@@ -90,17 +90,18 @@ The five stages:
 
 ## Tests and evidence
 
-- `python -m pytest -q` runs the whole suite (about 270 tests). It uses a fake model and spends no tokens.
+- `python -m pytest -q` runs the whole suite (about 320 tests). It uses a fake model and spends no tokens.
 - `python test_llm.py` makes one tiny real call to check your key and connection.
 - `python scripts/safety_demo.py` runs each safety defense and prints PASS/FAIL. Mostly free; the classifier cases and one full
   kung pao chicken run make real calls (about 3 cents). Output: `logs/safety_demo_output.txt`.
 - `python scripts/measure_tokens.py` measures 10 dishes x 2 configs = 20 live runs (about 4 cents). It saves after every run and
   can resume. `--dry-run` uses a fake model (free); `--summarize-only` rebuilds the reports from saved runs without any call.
+- `python scripts/allergy_text_check.py` writes `logs/allergy_text_check.md` (free, offline: an allergy stated in the text but not selected is stopped).
 - `python scripts/allergen_fix_check.py` re-checks saved results with the current allergen keywords (one optional live run;
   `--offline-only` makes none).
 
 Committed evidence files: `logs/safety_demo_output.txt`, `logs/token_report.csv`, `logs/token_summary.md`,
-`logs/cost_experiment.md`, `logs/allergen_fix_check.md`.
+`logs/cost_experiment.md`, `logs/allergen_fix_check.md`, `logs/allergy_text_check.md`.
 
 ## Data
 
@@ -121,6 +122,7 @@ Committed evidence files: `logs/safety_demo_output.txt`, `logs/token_report.csv`
 - The Goal selector (for example lower sodium) is passed to the AI as context but is not enforced or verified by code, and the results page does not say whether the goal was met. Allergies, the store and the vegetarian, vegan and pescatarian preferences are enforced by code; goals and other preferences (halal, kosher) are not.
 - Nutrition differences between the original and the adapted dish mostly reflect ingredients that were left out or have no USDA entry, not a healthier recipe. Treat the comparison as a consistency check on the ingredient list, not as a health claim.
 - Allergies accept several selections; dietary preference and goal accept one choice each.
+- Allergies are checked only for the nine sidebar categories (peanuts, tree nuts, shellfish, fish, soy, wheat/gluten, eggs, dairy, sesame). If the text box says you are allergic to (or want to avoid) one of them and it is not selected in the sidebar, the request stops before any AI call and asks you to select it. An allergy to something outside the nine (for example kiwi or mango) produces a warning and is not checked. The text rule uses word lists and a few trigger words, so it can miss unusual wording and can occasionally ask for a selection you did not need.
 - Vegetarian, vegan and pescatarian are checked by code with a keyword list, and a definite conflict triggers one substitution re-run (a conflict that remains is shown as not that diet). This is not a guarantee: items like kimchi, Worcestershire sauce and stock stay uncertain, and a vegetarian or vegan label never clears them. Any other preference (halal, kosher) is passed to the AI and is not verified.
 
 ## Safety in one paragraph

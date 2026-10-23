@@ -612,3 +612,33 @@ SLIDES (exactly these, in this order)
 DELIVERY
 Show me: the CDN URLs and versions used, the file size, the page count from print-pdf, the slide images you rendered and checked (and any problems you fixed), and every number you could not verify. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Prompt 11: slides.html". Don't push.
 ````
+
+## Fix: allergy stated in text but not selected is stopped before any AI call
+
+Found by my own manual test before recording the demo video.
+
+````
+Follow-up from my own testing of the app. With the sidebar Allergies box EMPTY and store Walmart, I typed "I want to make kung pao chicken, but I am allergic to peanuts." and clicked Adapt. The app ran the full pipeline and returned a recipe with 30 g of peanuts and 16 g of peanut oil, and its steps use both. The only notices were a generic blue banner ("HomeBite doesn't give medical advice; check with a registered dietitian.") and, further down the page, "You didn't select any allergies, so no allergen check was run." Allergies are only enforced from the sidebar, but a student who states an allergy in the text reasonably assumes it was applied. Fix this with a free, zero-token rule in the input screen. Keep the change small and in the style of the existing input rules.
+
+1. Diagnose first (no code changes yet): read safety.screen_input and the existing rule that blocks text like "ignore my peanut allergy" (store or allergy override attempts). Tell me in 5 lines which rule exists, why "I am allergic to peanuts" did not trigger it, and where the medical banner comes from. Then continue.
+
+2. safety.py: extend the free rules (they run before the classifier and spend no tokens) to detect allergy or avoidance statements in the text.
+ a. Allergen words: reuse the existing allergen keyword lists and whole-word matching for the nine sidebar categories (peanuts, tree nuts, shellfish, fish, soy, wheat/gluten, eggs, dairy, sesame), plus lactose and celiac and gluten for the relevant categories.
+ b. Triggers: allergic, allergy, allergies, intolerant, intolerance, celiac, anaphylaxis, "can't/cannot eat", "can't/cannot have", "react to", and the weaker "without", "free of", "-free", "avoid", "no <allergen>", "don't want". A trigger and an allergen word must appear within about 8 words in the same sentence.
+ c. If a detected allergen category is NOT selected in the sidebar Allergies: stop before any LLM call (0 tokens) with a friendly info message like the other blocked messages, using the sidebar's own label for the allergen: "You mentioned <allergen> as an allergy or something to avoid. HomeBite only checks the allergies selected in the sidebar. Please select <Allergen> under Allergies, then describe your dish again." If several are missing, list them. Log it to logs/safety_events.jsonl like other blocks (category allergy_in_text, caught by rule).
+ d. If every detected allergen category IS already selected, proceed normally and change nothing.
+ e. If the text states an allergy to something outside the nine (for example kiwi, mango, mustard, celery, lupin, corn), do not block: proceed, but show a yellow st.warning above the results: "You mentioned an allergy to <X>. HomeBite cannot check for it. Please check every ingredient and label yourself." Add the same line to the Safety checks list in the trace. Use a short, conservative keyword list for these other allergens.
+ f. No false alarms: dish names that contain allergen words without a trigger must pass (for example "Thai pad thai with shrimp", "Chinese tomato and egg stir-fry", "Mexican chicken tinga tacos with crema and queso fresco"), and look-alikes stay unflagged (eggplant, butternut, nutmeg, coconut milk).
+
+3. app.py: the UI freeze applies except for the blocked message (it should render like the other blocked messages) and the new yellow warning from 2e. Do not change the summary strip, the medical banner logic or any other text.
+
+4. Tests (offline, with a fake model that fails the test if it is called): each of the nine categories is blocked when stated with a strong trigger and not selected; the same text passes when that allergen is selected; weak triggers ("kung pao without peanuts", "gluten-free ramen") behave as in 2c and 2d; several allergens in one sentence; mixed case; the three example buttons and all 10 dish texts in data/measurement_dishes.json pass unchanged; the false-alarm cases in 2f; the unlisted-allergen warning; a block spends zero tokens and writes exactly one safety event. All existing tests must still pass (268 currently).
+
+5. Evidence (free, no live calls): write scripts/allergy_text_check.py that runs these cases through the app's real code path with the fake model and writes logs/allergy_text_check.md: a before/after table for the exact text I typed (before: the pipeline ran and returned a recipe with peanut oil and no check; after: blocked at 0 tokens, with the message shown), plus the false-alarm list. Add a .gitignore exception so that file is committed. Do NOT re-run scripts/safety_demo.py and do NOT touch logs/safety_demo_output.txt or any measurement file.
+
+6. README Known limits: add accurately that allergies are checked only for the nine sidebar categories; an allergy stated in the text box that is not selected stops the request before any AI call and asks the student to select it; an allergy outside the nine produces a warning and is not checked.
+
+7. Follow the prompt-log rule from CLAUDE.md (one line: found by my own manual test before recording the demo video), confirm gpt-6-luna is still the only model name and .env is not staged, and commit "Fix: allergy stated in text but not selected is stopped before any AI call". Don't push.
+
+Show me: the diagnosis, the keyword and trigger lists, the test results (count), the false-alarm check, the exact blocked message and warning text, the contents of allergy_text_check.md, and git status. If the fix needs changes outside safety.py, app.py, tests, scripts, README or the new log file, stop and tell me instead of continuing.
+````
