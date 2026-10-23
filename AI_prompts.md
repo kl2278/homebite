@@ -575,3 +575,40 @@ Small final edits to submission/report.html. Edit only the report, its build scr
 
 Rebuild, show the page count and file size, search the HTML for "[FILL", "Prompt" and ".git", follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Report: demo replay note, cross-references". Don't push.
 ````
+
+## Prompt 11: slides.html
+
+````
+Now the slide deck. This step only creates submission/slides.html (plus a small build script submission/build_slides.py). Do NOT change app code, prompts, data, tests, logs or report.html.
+
+GOAL
+submission/slides.html: a single HTML file using reveal.js, 10 slides MAX, that tells the story in a few minutes. Someone flipping through should understand the problem, what I built, why it is different, and what the evidence is. submission/report.html is the single source of truth for every number, claim and wording, including its hedges and limits; read it first and reuse its figure crops where they stay legible at slide size. If a number or claim cannot be found in report.html or the logs, leave it out and tell me.
+
+TECHNICAL
+- reveal.js loaded from a CDN (cdnjs or jsDelivr), pinned to an exact version at least two weeks old. Check each URL with curl returns HTTP 200 before using it. Everything else self-contained: images as base64 (resize to max 1600 px wide; total file under 12 MB), diagrams and charts as inline SVG.
+- Font: Google Fonts "Nunito" (weights 600-800) with rounded system fallbacks (ui-rounded, "Avenir Next Rounded", "Trebuchet MS", system-ui, sans-serif), so it still looks fine offline.
+- Reveal config: width 1280, height 720, hash true, slideNumber, progress, controls, transition "fade". Arrow keys navigate; F is full screen. Speaker notes on every slide (<aside class="notes">, 2-3 sentences).
+- Verify: open via file:// with ?print-pdf in headless Chrome, confirm at most 10 pages, render at least 4 pages to PNG and view them for overflow, clipped text and unreadable screenshots. Fix problems. If the tools are missing, say so.
+
+LOOK: cute, soft pink
+- Palette as CSS variables: background #FFF5F8, card #FFFFFF, soft pink #FFE4EC, candy pink #FF8FB1, hot pink #F25C8A, deep rose #B8325F, text plum #4A2C3A, cream #FFFBF7, mint #BDEBD6 for pass ticks only. Keep strong contrast (plum or deep rose on light backgrounds; white on hot pink only for large text).
+- Style: pastel gradient backgrounds, rounded cards (border-radius 24px, soft shadow), pill badges, thick rounded lines, a few simple original decorations as inline SVG (a steaming bowl, chopsticks, sparkles, hearts, a tiny grocery bag). No copyrighted characters or logos, no stock photos. Light animation only (slowly floating sparkles; cards appearing as fragments); respect prefers-reduced-motion.
+- Text: titles 52-60 px, body at least 28 px, at most about 40 words per slide besides numbers. Same layout everywhere: title top-left with a small bowl icon, content in cards.
+- Screenshots: rounded frames with a thin pink border and a small caption. Crop tightly so the text inside is readable at 1280x720 (about 14 px or larger on screen); at most two images per slide.
+- Honesty: no "first", "unique" or "best"; competitor comparisons use the report's hedged wording ("as publicly described", "adds", never "they can't"); say "prototype" where the report does.
+
+SLIDES (exactly these, in this order)
+1. Title: "HomeBite" with the bowl illustration; tagline "A bite of home, built from what your store sells."; pitch "Adapt a dish from home to your local store, with nutrition computed in code instead of guessed by AI."; my name (from the report); "MGT 409 - AI Foundations for Managers - Yale SOM".
+2. The problem, "Food is part of the move.": three stat cards from report section 2 (1,177,766 international students in the US in 2024/25; one survey found food choices follow whether native foods are sold in local stores; one small study linked culturally relevant food to belonging, labelled small). One line on today's workarounds (search, chatbot, ask family) with my own timing wording from the report, including that it produced a recipe only.
+3. What's new, and what isn't: two columns. Left, "Already out there (as publicly described)": general chatbots, Samsung Food, Ask Instacart, Cronometer, each with a one-line strength. Right, "HomeBite adds": starts from a dish from home; products only from the store's catalog; nutrition computed in code from USDA data with excluded items listed; allergen and diet checks that trigger a re-run; "left out" is an allowed answer. Bottom ribbon: "Prototype: 163-item starter catalog."
+4. How it works: the agent diagram as a large cute inline SVG: input guard -> Intake -> Analyst -> Substitution -> Verifier (plain code) -> Writer -> output check, the allergen/diet re-run loop, and trusted sidebar settings entering at the top. Tagline: "The model proposes. Code checks." State: four AI agents plus a code Verifier.
+5. Demo: one real result screenshot (the kung pao peanut run: summary strip and the left-out ingredients struck through, or the substitutions table) and a small trace crop (the Verifier panel). Three chips: "Every ingredient matched to USDA or listed as unmatched", "Every product exists in the catalog", "Every number comes from a tool result".
+6. Head-to-head with ChatGPT: headline "The test found a bug in my app. I fixed it." Left: the ChatGPT shopping-list crop with a caption (vegetarian, three named Walmart products, photos, 1 m 15 s). Right: HomeBite before and after (pork belly in a "vegetarian" recipe, then flagged, removed and a Diet check box). Honest chips: "one dish, one run each" and "ChatGPT did several things better in this test" (use the report's exact claims).
+7. Cost to run: big numbers for average cost per run and average time per run (from the report/logs); a small inline SVG bar chart of cost share by stage; per user per month and for 100 and 10,000 users with "12 runs per user per month (my assumption)"; the cost-cutting experiment in one line using the report's numbers ("cut cost 16.9%, but nutrition matching fell from 91.7% to 82.0%, so I did not ship it").
+8. Safety: a 2x2 grid of cards: "Prompt injection blocked at 0 tokens" (small screenshot), "Medical request declined" (small screenshot with its token counts), "Allergen found, removed, re-checked" (peanut run), "Diet conflict found, removed, re-checked" (pork belly). Under it: "Caps on spend: per run, session, day and hour". Footer: "Safety demo 19/19 - 268 tests". One line: "My own tests found two gaps (panko, pork belly). Both fixed and re-checked."
+9. Impact, "A real user tried it": Alex's test (18 s, $0.0015, easy to follow) with the tag "1 tester - needed no substitutions"; his quote in quotation marks ONLY if report.html has it in quotation marks, otherwise a paraphrase; his three ideas as chips; my timing vs the app's measured range, marked "not like-for-like". Measured numbers only.
+10. Limits and next: two columns. "Not there yet": 163-item starter catalog (use the report's counts of substitutes, no-match items and allergy removals), goal selector not enforced, no rebalancing when a main protein is removed, one tester. "Next": real store data, goal check in code, multi-select goals and diets, chat, pictures. Closing line "Thank you" with the bowl.
+
+DELIVERY
+Show me: the CDN URLs and versions used, the file size, the page count from print-pdf, the slide images you rendered and checked (and any problems you fixed), and every number you could not verify. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Prompt 11: slides.html". Don't push.
+````
