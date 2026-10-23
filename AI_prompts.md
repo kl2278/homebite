@@ -671,3 +671,17 @@ SLIDES CHANGES
 DELIVERY
 Rebuild both. Show: report page count and file size, the slides page count, every change made, everything cut for space, and any number you could not source. Search both HTML files for "268", "[FILL", "Prompt", ".git" and "two gaps" and show the results. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Report and slides: allergy-in-text fix, 318 tests". Don't push.
 ````
+
+## Report: trim to stay within 15 printed pages
+
+````
+Trim submission/report.html so it prints to 15 pages or fewer in other browsers. In Safari it currently prints 16 pages, with the 16th holding a single line; in headless Chrome it is 14 pages with the last page about 84% full. Edit only the report, its build script and submission/ files; do NOT touch app code, data, tests or logs.
+
+TARGET: in headless Chrome, 13 pages or fewer with the last page no more than about 40% full (cut roughly half to three-quarters of a page of text overall), so Safari and Firefox print at most 15.
+
+1. Cut text, not evidence. Tighten wording and remove duplication in sections 2, 3, 6, 7 and 8 and in the appendix. Good candidates: sentences repeated between section 3 and section 6, long table cells, per-run token details already shown in a table or figure, and over-explained caveats said twice. Do NOT remove or shrink any figure below its current size, any number, any honest-limits or "what is not proven" statement, any source, or the "Where the numbers come from" mapping (it may be reformatted more compactly). Do not change any number.
+2. Use one explicit print font stack for body text, tables and captions (for example "Helvetica Neue", Helvetica, Arial, sans-serif) so Safari, Chrome and Firefox lay the page out more alike. Keep 10 pt body text and current margins.
+3. Check that no figure, table row or heading is stranded at the bottom of a page, and that no page ends with a large blank gap caused by a figure that does not fit (reorder text around figures if needed).
+4. Rebuild and report: the Chrome page count and how full the last page is, the file size, every cut you made (a short list), and the number cross-check result. Search the HTML for "[FILL", "Prompt", ".git" and "268" and show the results.
+5. Follow the prompt-log rule from CLAUDE.md, confirm .env is not staged, and commit "Report: trim to stay within 15 printed pages". Don't push.
+````
